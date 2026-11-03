@@ -7,6 +7,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +93,10 @@ class MainActivity : ComponentActivity() {
         hasPermission = granted
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     private var hasPermission by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,13 +106,24 @@ class MainActivity : ComponentActivity() {
         if (!hasPermission) {
             permissionLauncher.launch(audioPermission())
         }
-        setContent {
-            val factory = object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MusicViewModel(applicationContext) as T
-                }
+        // Start the song scan immediately, before the first frame is
+        // drawn, instead of waiting for composition + permission effects.
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return MusicViewModel(applicationContext) as T
             }
+        }
+        val earlyViewModel = ViewModelProvider(this, factory)[MusicViewModel::class.java]
+        if (hasPermission) earlyViewModel.loadSongs()
+        // Notification permission lets Android show the media
+        // notification / Quick Settings tile while music plays.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        setContent {
             val viewModel: MusicViewModel = viewModel(factory = factory)
             val darkTheme by viewModel.darkTheme.collectAsState()
             val accentName by viewModel.accentName.collectAsState()
@@ -198,7 +218,11 @@ fun SnoahPlusApp(
                             onClick = { navController.navigate(Routes.PLAYER) }
                         )
                     }
-                    NavigationBar {
+                    androidx.compose.material3.HorizontalDivider(color = androidx.compose.material3.MaterialTheme.colorScheme.outline)
+                    NavigationBar(
+                        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp
+                    ) {
                         val items = listOf(
                             Triple(Routes.HOME, "Home", Icons.Filled.Home),
                             Triple(Routes.SEARCH, "Search", Icons.Filled.Search),
@@ -227,7 +251,11 @@ fun SnoahPlusApp(
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier.padding(padding)
+            modifier = Modifier.padding(padding),
+            enterTransition = { fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 6 } },
+            exitTransition = { fadeOut(tween(180)) },
+            popEnterTransition = { fadeIn(tween(220)) },
+            popExitTransition = { fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { it / 6 } }
         ) {
             composable(Routes.HOME) {
                 HomeScreen(
