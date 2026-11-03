@@ -53,7 +53,8 @@ class MusicRepository(private val context: Context) {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.SIZE,
-            MediaStore.Audio.Media.MIME_TYPE
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DATE_MODIFIED
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             projectionList.add(MediaStore.Audio.Media.RELATIVE_PATH)
@@ -69,6 +70,7 @@ class MusicRepository(private val context: Context) {
                 val durationCol = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
                 val albumIdCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
                 val dateCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val dateModifiedCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_MODIFIED)
                 val sizeCol = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
                 val mimeCol = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
                 val pathCol = cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
@@ -105,6 +107,13 @@ class MusicRepository(private val context: Context) {
                         } else null
                         val uri = ContentUris.withAppendedId(collection, id)
                         if (out.containsKey(uri)) continue
+                        val dateAdded = if (dateCol >= 0) cursor.getLong(dateCol) else 0L
+                        val dateModified = if (dateModifiedCol >= 0) cursor.getLong(dateModifiedCol) else 0L
+                        // DATE_ADDED is 0 for many files (e.g. chat-app audio),
+                        // which made "Recent" sorting look like it did nothing.
+                        // Fall back to the file's modified time so Recent
+                        // sorting always has a real order.
+                        val effectiveDate = if (dateAdded > 0) dateAdded else dateModified
                         out[uri] = Song(
                             id = id,
                             title = title,
@@ -113,7 +122,7 @@ class MusicRepository(private val context: Context) {
                             durationMs = if (durationCol >= 0) cursor.getLong(durationCol) else 0L,
                             contentUri = uri,
                             albumArtUri = artUri,
-                            dateAdded = if (dateCol >= 0) cursor.getLong(dateCol) else 0L,
+                            dateAdded = effectiveDate,
                             sizeBytes = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
                         )
                     } catch (e: Exception) {
