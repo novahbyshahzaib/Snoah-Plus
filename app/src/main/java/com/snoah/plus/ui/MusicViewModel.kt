@@ -44,12 +44,19 @@ class MusicViewModel(context: Context) : ViewModel() {
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
     private var loadJob: Job? = null
+    private var observerJob: Job? = null
 
     // Reload when MediaStore changes (a new file is downloaded or
     // deleted), so songs appear without switching tabs or restarting.
+    // Debounced: the scanner fires many events in a row, and reloading
+    // on every one kept cancelling the scan and rebuilding the lists.
     private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
-            loadSongs()
+            observerJob?.cancel()
+            observerJob = viewModelScope.launch {
+                delay(1500)
+                loadSongs()
+            }
         }
     }
 
@@ -110,7 +117,11 @@ class MusicViewModel(context: Context) : ViewModel() {
         super.onCleared()
     }
 
-    fun loadSongs() {
+    fun loadSongs(force: Boolean = false) {
+        // Single flight: while a scan is running, another trigger
+        // (resume, observer, Home entry) must not cancel it and
+        // restart the scan, or the list never settles.
+        if (!force && loadJob?.isActive == true) return
         // Cancel a stale load so a fresh Refresh can never be
         // overwritten by an older, slower query finishing later.
         loadJob?.cancel()
@@ -140,7 +151,7 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     /** Manual refresh, e.g. from the refresh button on Home. */
     fun refreshSongs() {
-        loadSongs()
+        loadSongs(force = true)
     }
 
     fun setSearchQuery(query: String) {
