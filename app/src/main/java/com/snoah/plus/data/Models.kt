@@ -21,6 +21,6 @@ data class Playlist(
     val createdAt: Long
 )
 
-enum class SortOrder { TITLE, ARTIST, DURATION, RECENT }
+enum class SortOrder { TITLE, ARTIST, DURATION, RECENT, MOST_PLAYED }
 
 enum class RepeatMode { OFF, ALL, ONE }

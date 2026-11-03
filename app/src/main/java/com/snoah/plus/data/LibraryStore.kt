@@ -170,6 +170,24 @@ class LibraryStore(context: Context) {
 
     fun getPlayCount(songId: Long): Int = prefs.getInt("$KEY_PLAY_COUNT_PREFIX$songId", 0)
 
+    // ---- Search history (last 8 searches, on this device only) ----
+
+    fun getSearchHistory(): List<String> {
+        return prefs.getString(KEY_SEARCH_HISTORY, "")
+            ?.split("\n")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    }
+
+    fun saveSearchQuery(query: String) {
+        val current = getSearchHistory().toMutableList()
+        current.remove(query)
+        current.add(0, query)
+        prefs.edit().putString(KEY_SEARCH_HISTORY, current.take(8).joinToString("\n")).apply()
+    }
+
+    fun clearSearchHistory() {
+        prefs.edit().remove(KEY_SEARCH_HISTORY).apply()
+    }
+
     companion object {
         private const val KEY_FAVOURITES = "favourites"
         private const val KEY_PLAYLIST_IDS = "playlist_ids"
@@ -189,5 +207,6 @@ class LibraryStore(context: Context) {
         private const val KEY_LAST_POSITION = "last_position_ms"
         private const val KEY_RESUME_PREFIX = "resume_position_"
         private const val KEY_PLAY_COUNT_PREFIX = "play_count_"
+        private const val KEY_SEARCH_HISTORY = "search_history"
     }
 }
