@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Snoah Plus</string>
+    <string name="tagline">Your music, beautifully played.</string>
+    <string name="no_songs">No songs found</string>
+    <string name="no_songs_hint">Audio files on this device will appear here once permission is granted.</string>
+    <string name="grant_permission">Grant permission</string>
+    <string name="search_hint">Search songs, artists, albums…</string>
+</resources>
