@@ -41,49 +41,49 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.snoah.plus.data.Song
-import com.snoah.plus.ui.theme.SnoahCyan
-import com.snoah.plus.ui.theme.SnoahPink
-import com.snoah.plus.ui.theme.SnoahViolet
 import com.snoah.plus.util.FormatUtils
 
 @Composable
 fun AlbumArt(
     song: Song?,
     modifier: Modifier = Modifier,
-    cornerDp: Int = 16
+    cornerDp: Int = 16,
+    isPlaying: Boolean = false
 ) {
     val shape = RoundedCornerShape(cornerDp.dp)
+    val hasArt = song?.albumArtUri != null
     Box(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.linearGradient(listOf(SnoahViolet, SnoahPink, SnoahCyan))
-            ),
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        if (song?.albumArtUri != null) {
+        if (hasArt) {
             AsyncImage(
-                model = song.albumArtUri,
+                model = song!!.albumArtUri,
                 contentDescription = song.title,
                 modifier = Modifier.matchParentSize().clip(shape),
                 contentScale = ContentScale.Crop
             )
-        }
-        if (song == null || song.albumArtUri == null) {
-            // Fallback is drawn underneath the image when it loads; show a
-            // note icon only when there is no artwork at all.
-            if (song?.albumArtUri == null) {
+        } else {
+            // Premium default artwork: a clean music note on a muted
+            // surface. While playing, moving equaliser bars replace
+            // the note so songs without a picture still feel alive.
+            if (isPlaying) {
+                VisualizerBars(
+                    isPlaying = true,
+                    modifier = Modifier.size(width = 36.dp, height = 28.dp)
+                )
+            } else {
                 Icon(
                     imageVector = Icons.Filled.MusicNote,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -100,7 +100,9 @@ fun SongRow(
     onFavouriteClick: () -> Unit,
     onAddToPlaylistClick: (() -> Unit)? = null,
     onPlayNextClick: (() -> Unit)? = null,
-    onAddToQueueClick: (() -> Unit)? = null
+    onAddToQueueClick: (() -> Unit)? = null,
+    onDetailsClick: (() -> Unit)? = null,
+    onShareClick: (() -> Unit)? = null
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Card(
@@ -113,7 +115,7 @@ fun SongRow(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AlbumArt(song = song, modifier = Modifier.size(52.dp), cornerDp = 14)
+            AlbumArt(song = song, modifier = Modifier.size(52.dp), cornerDp = 14, isPlaying = isPlaying)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -142,10 +144,10 @@ fun SongRow(
                 Icon(
                     imageVector = if (isFavourite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = if (isFavourite) "Remove from favourites" else "Add to favourites",
-                    tint = if (isFavourite) SnoahPink else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (isFavourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (onPlayNextClick != null || onAddToQueueClick != null || onAddToPlaylistClick != null) {
+            if (onPlayNextClick != null || onAddToQueueClick != null || onAddToPlaylistClick != null || onDetailsClick != null || onShareClick != null) {
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Song options")
@@ -159,6 +161,12 @@ fun SongRow(
                         }
                         if (onAddToPlaylistClick != null) {
                             DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { menuExpanded = false; onAddToPlaylistClick() })
+                        }
+                        if (onShareClick != null) {
+                            DropdownMenuItem(text = { Text("Share song") }, onClick = { menuExpanded = false; onShareClick() })
+                        }
+                        if (onDetailsClick != null) {
+                            DropdownMenuItem(text = { Text("Details") }, onClick = { menuExpanded = false; onDetailsClick() })
                         }
                     }
                 }
@@ -186,7 +194,7 @@ fun VisualizerBars(isPlaying: Boolean, modifier: Modifier = Modifier) {
                         .height((16f * h).dp)
                         .align(Alignment.BottomCenter)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Brush.verticalGradient(listOf(SnoahPink, SnoahViolet)))
+                        .background(MaterialTheme.colorScheme.onSurface)
                 )
             }
         }
@@ -213,17 +221,21 @@ fun MiniPlayer(
                 modifier = Modifier.fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AlbumArt(song = song, modifier = Modifier.size(44.dp), cornerDp = 12)
+                AlbumArt(song = song, modifier = Modifier.size(44.dp), cornerDp = 12, isPlaying = isPlaying)
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(song.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (isPlaying) {
+                    VisualizerBars(isPlaying = true, modifier = Modifier.size(width = 20.dp, height = 16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 IconButton(onClick = onPlayPause, modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
@@ -234,7 +246,7 @@ fun MiniPlayer(
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(progress).height(3.dp)
-                        .background(Brush.horizontalGradient(listOf(SnoahViolet, SnoahPink)))
+                        .background(MaterialTheme.colorScheme.primary)
                 )
             }
         }
@@ -257,14 +269,13 @@ fun EmptyState(title: String, message: String) {
 
 @Composable
 fun GradientHeader(title: String, subtitle: String) {
-    Box(
-        modifier = Modifier.fillMaxWidth()
-            .background(Brush.linearGradient(listOf(SnoahViolet, SnoahPink, SnoahCyan)))
-            .padding(horizontal = 20.dp, vertical = 18.dp)
-    ) {
-        Column {
-            Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // Kept name for call sites; the look is now premium monochrome:
+    // solid background, strong title, muted subtitle, hairline divider.
+    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outline)
     }
 }
