@@ -2,19 +2,24 @@ package com.snoah.plus.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val SnoahBlack = Color(0xFF0A0A12)
-val SnoahSurface = Color(0xFF14141F)
-val SnoahCard = Color(0xFF1B1B2B)
-val SnoahViolet = Color(0xFF7C4DFF)
-val SnoahPink = Color(0xFFFF2E88)
-val SnoahCyan = Color(0xFF00E5FF)
-val SnoahText = Color(0xFFF5F3FF)
-val SnoahMuted = Color(0xFFB8B3CC)
-val SnoahGreen = Color(0xFF2EE6A8)
+// Premium black and white palette. No bright colours: pure black,
+// soft white, and greys only, so the app looks like a premium
+// system music player in both dark and light mode.
+val SnoahBlack = Color(0xFF000000)
+val SnoahSurface = Color(0xFF0E0E10)
+val SnoahCard = Color(0xFF17171A)
+val SnoahBorder = Color(0xFF26262A)
+val SnoahText = Color(0xFFFFFFFF)
+val SnoahMuted = Color(0xFFA1A1AA)
+
+// Kept for source compatibility; no longer used for any visible colour.
+val SnoahViolet = Color(0xFFFFFFFF)
+val SnoahPink = Color(0xFFE4E4E7)
+val SnoahCyan = Color(0xFFA1A1AA)
+val SnoahGreen = Color(0xFF71717A)
 
 val AccentOptions = listOf(
-    "Violet" to SnoahViolet,
-    "Pink" to SnoahPink,
-    "Cyan" to SnoahCyan,
-    "Green" to SnoahGreen
+    "White" to Color.White,
+    "Silver" to Color(0xFFE4E4E7),
+    "Graphite" to Color(0xFF71717A)
 )
