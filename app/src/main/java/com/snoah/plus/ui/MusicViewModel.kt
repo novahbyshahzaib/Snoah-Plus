@@ -179,7 +179,7 @@ class MusicViewModel(context: Context) : ViewModel() {
             SortOrder.TITLE -> base.sortedBy { it.title.lowercase() }
             SortOrder.ARTIST -> base.sortedBy { it.artist.lowercase() }
             SortOrder.DURATION -> base.sortedByDescending { it.durationMs }
-            SortOrder.RECENT -> base.sortedByDescending { it.dateAdded }
+            SortOrder.RECENT -> base.sortedWith(compareByDescending<Song> { it.dateAdded }.thenBy { it.title.lowercase() })
             SortOrder.MOST_PLAYED -> base.sortedByDescending { library.getPlayCount(it.id) }
         }
     }
@@ -240,6 +240,14 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun recentlyAddedSongs(limit: Int = 8): List<Song> {
         return _songs.value.sortedByDescending { it.dateAdded }.take(limit)
+    }
+
+    fun totalPlayCount(): Int {
+        return _songs.value.sumOf { library.getPlayCount(it.id) }
+    }
+
+    fun totalListeningTimeMs(): Long {
+        return _songs.value.sumOf { it.durationMs * library.getPlayCount(it.id).toLong() }
     }
 
     fun playlistM3U(playlist: Playlist): String {
