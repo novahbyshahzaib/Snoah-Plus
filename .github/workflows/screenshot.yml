@@ -1,9 +1,7 @@
 name: Screenshot
 
-
 on:
     workflow_dispatch:
-
 
 jobs:
     screenshot:
