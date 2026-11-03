@@ -55,6 +55,16 @@ class MusicViewModel(context: Context) : ViewModel() {
         _favourites.value = library.getFavourites()
         _playlists.value = library.getPlaylists()
         _recentIds.value = library.getRecentlyPlayed()
+        // Settings the user chose before must come back exactly as left.
+        runCatching {
+            library.getSortOrder()?.let { _sortOrder.value = SortOrder.valueOf(it) }
+        }
+        library.getDarkTheme()?.let { _darkTheme.value = it }
+        library.getAccentName()?.let { _accentName.value = it }
+        library.getEqualizerPreset()?.let {
+            _equalizerPreset.value = it
+            PlayerManager.setEqualizerPreset(it)
+        }
     }
 
     fun loadSongs() {
@@ -63,7 +73,14 @@ class MusicViewModel(context: Context) : ViewModel() {
             val loaded = withContext(Dispatchers.IO) { repository.loadSongs() }
             _songs.value = loaded
             _isLoading.value = false
+            // Bring back the last song in the mini-player, paused, ready to play.
+            PlayerManager.restoreLastPlayed(loaded)
         }
+    }
+
+    /** Manual refresh, e.g. from the refresh button on Home. */
+    fun refreshSongs() {
+        loadSongs()
     }
 
     fun setSearchQuery(query: String) {
@@ -72,6 +89,7 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun setSortOrder(order: SortOrder) {
         _sortOrder.value = order
+        library.saveSortOrder(order.name)
     }
 
     fun filteredSongs(): List<Song> {
@@ -113,10 +131,52 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun playSong(song: Song, queue: List<Song>) {
         val index = queue.indexOfFirst { it.id == song.id }.takeIf { it >= 0 } ?: 0
-        PlayerManager.playQueue(queue, index) { played ->
+        // Resume where this song was left off, if it was stopped mid-song.
+        val resume = library.getResumePosition(song.id)
+        val startAt = if (resume > 3000 && resume < (song.durationMs - 5000).coerceAtLeast(0L)) resume else 0L
+        PlayerManager.playQueue(queue, index, startAtMs = startAt) { played ->
             library.recordPlayed(played.id)
             _recentIds.value = library.getRecentlyPlayed()
         }
+    }
+
+    fun playNext(song: Song) {
+        PlayerManager.playNext(song)
+    }
+
+    fun addToQueue(song: Song) {
+        PlayerManager.addToQueue(song)
+    }
+
+    fun shuffleAll() {
+        val songs = filteredSongs()
+        if (songs.isEmpty()) return
+        val shuffled = songs.shuffled()
+        PlayerManager.playQueue(shuffled, 0) { played ->
+            library.recordPlayed(played.id)
+            _recentIds.value = library.getRecentlyPlayed()
+        }
+    }
+
+    fun mostPlayedSongs(limit: Int = 8): List<Song> {
+        return _songs.value
+            .filter { library.getPlayCount(it.id) > 0 }
+            .sortedByDescending { library.getPlayCount(it.id) }
+            .take(limit)
+    }
+
+    fun recentlyAddedSongs(limit: Int = 8): List<Song> {
+        return _songs.value.sortedByDescending { it.dateAdded }.take(limit)
+    }
+
+    fun playlistM3U(playlist: Playlist): String {
+        val byId = _songs.value.associateBy { it.id }
+        val lines = StringBuilder("#EXTM3U\n#PLAYLIST:${playlist.name}\n")
+        playlist.songIds.mapNotNull { byId[it] }.forEach { song ->
+            lines.append("#EXTINF:${song.durationMs / 1000},${song.artist} - ${song.title}\n")
+            lines.append("${song.contentUri}\n")
+        }
+        return lines.toString()
     }
 
     fun toggleFavourite(song: Song) {
@@ -158,13 +218,25 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun setDarkTheme(dark: Boolean) {
         _darkTheme.value = dark
+        library.saveDarkTheme(dark)
     }
 
     fun setAccent(name: String) {
         _accentName.value = name
+        library.saveAccentName(name)
     }
 
     fun setEqualizerPreset(preset: String) {
         _equalizerPreset.value = preset
+        library.saveEqualizerPreset(preset)
+        PlayerManager.setEqualizerPreset(preset)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        PlayerManager.setSpeed(speed)
+    }
+
+    fun setVibeEnabled(enabled: Boolean) {
+        PlayerManager.setVibeEnabled(enabled)
     }
 }
