@@ -216,6 +216,12 @@ fun HomeScreen(
     // Memoize the sorted/filtered/grouped lists: recomputing them on
     // every 500ms playback tick made scrolling jitter and stall.
     val displayed = androidx.compose.runtime.remember(songs, searchQuery, sortOrder, recentIds) { viewModel.filteredSongs() }
+    // Card counts computed here, in the screen body, not inside a
+    // LazyColumn item: remember() inside a lazy item can crash or
+    // go stale when items are recycled during fast scrolling.
+    val homeFavouriteCount = remember(songs, favourites) { viewModel.favouriteSongs().size }
+    val homeAlbumCount = remember(songs) { viewModel.albums().size }
+    val homeArtistCount = remember(songs) { viewModel.artists().size }
     // Safety net: the All-songs list must never be empty while songs
     // are known. If a stale search filter hides everything, fall
     // back to the full list so Home can never show "No songs yet"
@@ -266,9 +272,9 @@ fun HomeScreen(
             // Three equal cards, fixed height, single-line labels so nothing wraps.
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
-                    Triple("Favourites", FormatUtils.formatCount(remember(songs, favourites) { viewModel.favouriteSongs() }.size, "song", "songs"), Icons.Filled.Favorite to MaterialTheme.colorScheme.onSurface),
-                    Triple("Albums", FormatUtils.formatCount(remember(songs) { viewModel.albums() }.size, "album", "albums"), Icons.Filled.Album to MaterialTheme.colorScheme.onSurface),
-                    Triple("Artists", FormatUtils.formatCount(remember(songs) { viewModel.artists() }.size, "artist", "artists"), Icons.Filled.Person to MaterialTheme.colorScheme.onSurface)
+                    Triple("Favourites", FormatUtils.formatCount(homeFavouriteCount, "song", "songs"), Icons.Filled.Favorite to MaterialTheme.colorScheme.onSurface),
+                    Triple("Albums", FormatUtils.formatCount(homeAlbumCount, "album", "albums"), Icons.Filled.Album to MaterialTheme.colorScheme.onSurface),
+                    Triple("Artists", FormatUtils.formatCount(homeArtistCount, "artist", "artists"), Icons.Filled.Person to MaterialTheme.colorScheme.onSurface)
                 ).forEachIndexed { index, (label, count, iconTint) ->
                     Card(
                         modifier = Modifier.weight(1f).height(92.dp).clickable {
