@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
@@ -210,7 +212,10 @@ fun HomeScreen(
         SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null })
     }
 
-    val displayed = viewModel.filteredSongs()
+    val recentIds by viewModel.recentIds.collectAsState()
+    // Memoize the sorted/filtered/grouped lists: recomputing them on
+    // every 500ms playback tick made scrolling jitter and stall.
+    val displayed = androidx.compose.runtime.remember(songs, searchQuery, sortOrder, recentIds) { viewModel.filteredSongs() }
     // Safety net: the All-songs list must never be empty while songs
     // are known. If a stale search filter hides everything, fall
     // back to the full list so Home can never show "No songs yet"
@@ -261,9 +266,9 @@ fun HomeScreen(
             // Three equal cards, fixed height, single-line labels so nothing wraps.
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
-                    Triple("Favourites", FormatUtils.formatCount(viewModel.favouriteSongs().size, "song", "songs"), Icons.Filled.Favorite to MaterialTheme.colorScheme.onSurface),
-                    Triple("Albums", FormatUtils.formatCount(viewModel.albums().size, "album", "albums"), Icons.Filled.Album to MaterialTheme.colorScheme.onSurface),
-                    Triple("Artists", FormatUtils.formatCount(viewModel.artists().size, "artist", "artists"), Icons.Filled.Person to MaterialTheme.colorScheme.onSurface)
+                    Triple("Favourites", FormatUtils.formatCount(remember(songs, favourites) { viewModel.favouriteSongs() }.size, "song", "songs"), Icons.Filled.Favorite to MaterialTheme.colorScheme.onSurface),
+                    Triple("Albums", FormatUtils.formatCount(remember(songs) { viewModel.albums() }.size, "album", "albums"), Icons.Filled.Album to MaterialTheme.colorScheme.onSurface),
+                    Triple("Artists", FormatUtils.formatCount(remember(songs) { viewModel.artists() }.size, "artist", "artists"), Icons.Filled.Person to MaterialTheme.colorScheme.onSurface)
                 ).forEachIndexed { index, (label, count, iconTint) ->
                     Card(
                         modifier = Modifier.weight(1f).height(92.dp).clickable {
@@ -453,9 +458,18 @@ fun LibraryScreen(
     val songs by viewModel.songs.collectAsState()
     val favourites by viewModel.favourites.collectAsState()
     val playerState by PlayerManager.state.collectAsState()
+    val libraryRecentIds by viewModel.recentIds.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var detailsSong by remember { mutableStateOf<Song?>(null) }
+    // Memoize: these lists must not be rebuilt on every playback tick.
+    val librarySections = remember(songs, favourites, libraryRecentIds) {
+        listOf(
+            "Recently played" to viewModel.recentSongs().take(8),
+            "Recently added" to viewModel.recentlyAddedSongs(limit = 8),
+            "Most played" to viewModel.mostPlayedSongs(limit = 8)
+        )
+    }
     val libraryContext = LocalContext.current
 
     if (detailsSong != null) {
@@ -495,17 +509,12 @@ fun LibraryScreen(
         }
         // Library-only sections: Recently played, Recently added and
         // Most played live here in their own sections, not on Home.
-        val librarySections = listOf(
-            "Recently played" to viewModel.recentSongs().take(8),
-            "Recently added" to viewModel.recentlyAddedSongs(limit = 8),
-            "Most played" to viewModel.mostPlayedSongs(limit = 8)
-        )
         librarySections.forEach { (title, sectionSongs) ->
             if (sectionSongs.isNotEmpty()) {
                 item {
                     Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                 }
-                items(sectionSongs, key = { it.id }) { song ->
+                items(sectionSongs, key = { song -> "$title-${song.id}" }) { song ->
                     SongRow(
                         song = song,
                         isFavourite = favourites.contains(song.id),
@@ -695,9 +704,11 @@ fun VolumeRow() {
 @Composable
 fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
     val playerState by PlayerManager.state.collectAsState()
+    val playerPositionMs by PlayerManager.positionMs.collectAsState()
     val favourites by viewModel.favourites.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
     val song = playerState.currentSong
+    val eqPreset by viewModel.equalizerPreset.collectAsState()
     var showSleep by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
@@ -785,13 +796,13 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Slider(
-                        value = playerState.positionMs.toFloat(),
+                        value = playerPositionMs.toFloat(),
                         onValueChange = { PlayerManager.seekTo(it.toLong()) },
                         valueRange = 0f..(if (playerState.durationMs > 0) playerState.durationMs.toFloat() else 1f),
                         modifier = Modifier.fillMaxWidth().height(32.dp)
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(FormatUtils.formatDuration(playerState.positionMs), style = MaterialTheme.typography.bodyMedium)
+                        Text(FormatUtils.formatDuration(playerPositionMs), style = MaterialTheme.typography.bodyMedium)
                         Text(FormatUtils.formatDuration(playerState.durationMs), style = MaterialTheme.typography.bodyMedium)
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -831,22 +842,23 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    // Three equal buttons on one row: same height, same weight.
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { showSleep = true }, modifier = Modifier.weight(1f).height(48.dp)) {
-                            Icon(Icons.Filled.Timer, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (playerState.sleepTimerSecondsLeft != null) "Sleep ${playerState.sleepTimerSecondsLeft!! / 60}m" else "Sleep", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Icon-only actions: no names, just icons. A coloured
+                    // icon means the feature is on (timer set, speed
+                    // changed, or song favourited).
+                    Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { showSleep = true }, modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)) {
+                            Icon(Icons.Filled.Timer, contentDescription = "Sleep timer", modifier = Modifier.size(24.dp), tint = if (playerState.sleepTimerSecondsLeft != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                         }
-                        OutlinedButton(onClick = { showSpeed = true }, modifier = Modifier.weight(1f).height(48.dp)) {
-                            Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("${playerState.playbackSpeed}x", maxLines = 1)
+                        IconButton(onClick = { showSpeed = true }, modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)) {
+                            Icon(Icons.Filled.Speed, contentDescription = "Playback speed", modifier = Modifier.size(24.dp), tint = if (playerState.playbackSpeed != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                         }
-                        OutlinedButton(onClick = { viewModel.toggleFavourite(song) }, modifier = Modifier.weight(1f).height(48.dp)) {
-                            Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (favourites.contains(song.id)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Favourite", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(onClick = { viewModel.toggleFavourite(song) }, modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)) {
+                            Icon(
+                                imageVector = if (favourites.contains(song.id)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                contentDescription = "Favourite",
+                                modifier = Modifier.size(24.dp),
+                                tint = if (favourites.contains(song.id)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                     if (playerState.vibeEnabled) {
@@ -861,8 +873,24 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     VolumeRow()
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("Equalizer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(if (eqPreset == "Balanced") "" else eqPreset, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(listOf("Balanced", "Bass Boost", "Treble Boost", "Vocal", "Rock", "Pop", "Classical")) { presetName ->
+                            FilterChip(selected = eqPreset == presetName, onClick = { viewModel.setEqualizerPreset(presetName) }, label = { Text(presetName) })
+                        }
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Up next", style = MaterialTheme.typography.titleLarge, modifier = Modifier.fillMaxWidth())
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text("Up next", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                        if (playerState.queue.isNotEmpty()) {
+                            TextButton(onClick = { PlayerManager.clearQueue() }) { Text("Clear") }
+                        }
+                    }
                 }
             }
         }
@@ -870,7 +898,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
         if (queue.isEmpty()) {
             item { EmptyState("Queue is empty", "Your queue will appear here while music plays.") }
         } else {
-            items(queue, key = { it.id }) { queueSong ->
+            itemsIndexed(queue, key = { index, queueSong -> "$index-${queueSong.id}" }) { _, queueSong ->
                 SongRow(song = queueSong, isFavourite = favourites.contains(queueSong.id), isPlaying = playerState.currentSong?.id == queueSong.id, onClick = { viewModel.playSong(queueSong, queue) }, onFavouriteClick = { viewModel.toggleFavourite(queueSong) }, onPlayNextClick = { viewModel.playNext(queueSong) }, onAddToQueueClick = { viewModel.addToQueue(queueSong) })
             }
         }
@@ -886,10 +914,19 @@ fun SettingsScreen(viewModel: MusicViewModel) {
     val playerState by PlayerManager.state.collectAsState()
     val presets = listOf("Balanced", "Bass Boost", "Treble Boost", "Vocal", "Rock", "Pop", "Classical")
 
+    val settingsSongs by viewModel.songs.collectAsState()
+    val settingsFavourites by viewModel.favourites.collectAsState()
+    val settingsPlaylists by viewModel.playlists.collectAsState()
+    val statsPlays = remember(settingsSongs) { viewModel.totalPlayCount() }
+    val statsHours = remember(settingsSongs) { viewModel.totalListeningTimeMs() / 3_600_000 }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item { GradientHeader(title = "Settings", subtitle = "Make Snoah Plus yours") }
         item {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text("Your music", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("${settingsSongs.size} songs  •  ${settingsFavourites.size} favourites  •  ${settingsPlaylists.size} playlists  •  $statsPlays plays  •  about $statsHours hours listened", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Dark theme", style = MaterialTheme.typography.titleMedium)
@@ -928,7 +965,7 @@ fun SettingsScreen(viewModel: MusicViewModel) {
                 Text("Your last song stays in the mini-player when you reopen the app, paused at the place you left it. Songs you stop mid-way resume from the same place when you tap them again. Sort order, theme, accent and equalizer are all remembered.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(20.dp))
                 Text("About", style = MaterialTheme.typography.titleMedium)
-                Text("Snoah Plus 1.0.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Snoah Plus 1.2.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(96.dp))
             }
         }
