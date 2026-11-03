@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -64,8 +65,15 @@ fun AlbumArt(
         contentAlignment = Alignment.Center
     ) {
         if (hasArt) {
+            // Load a small thumbnail, not the full-size album art:
+            // full-size images on every row made fast scrolling jitter.
+            val artRequest = coil.request.ImageRequest.Builder(LocalContext.current)
+                .data(song!!.albumArtUri)
+                .size(256)
+                .crossfade(true)
+                .build()
             AsyncImage(
-                model = song!!.albumArtUri,
+                model = artRequest,
                 contentDescription = song.title,
                 modifier = Modifier.matchParentSize().clip(shape),
                 contentScale = ContentScale.Crop
