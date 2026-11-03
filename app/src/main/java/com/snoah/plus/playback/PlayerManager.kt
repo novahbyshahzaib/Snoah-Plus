@@ -1,9 +1,13 @@
 package com.snoah.plus.playback
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.audiofx.BassBoost
 import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
@@ -512,11 +516,14 @@ object PlayerManager {
     }
 
     fun release() {
-        try {
-            noisyReceiver?.let { appContext?.unregisterReceiver(it) }
-        } catch (e: Exception) {
-        }
+        val receiver = noisyReceiver
         noisyReceiver = null
+        if (receiver != null) {
+            try {
+                appContext?.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+            }
+        }
         saveLastPlayed()
         handler.removeCallbacks(ticker)
         releaseEffects()
