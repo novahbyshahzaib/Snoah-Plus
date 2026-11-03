@@ -59,6 +59,9 @@ object PlayerManager {
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
     private val handler = Handler(Looper.getMainLooper())
     private var sleepEndAtMs: Long? = null
     private var tickCount = 0
@@ -104,12 +107,15 @@ object PlayerManager {
         override fun run() {
             val p = player
             if (p != null) {
+                val newPosition = p.currentPosition
+                if (kotlin.math.abs(newPosition - _positionMs.value) >= 250L) {
+                    _positionMs.value = newPosition
+                }
                 val current = _state.value.currentSong
-                _state.value = _state.value.copy(
-                    isPlaying = p.isPlaying,
-                    positionMs = p.currentPosition,
-                    durationMs = if (p.duration > 0) p.duration else (current?.durationMs ?: 0L)
-                )
+                val newDuration = if (p.duration > 0) p.duration else (current?.durationMs ?: 0L)
+                if (_state.value.isPlaying != p.isPlaying || _state.value.durationMs != newDuration) {
+                    _state.value = _state.value.copy(isPlaying = p.isPlaying, durationMs = newDuration)
+                }
                 tickCount++
                 if (tickCount % 10 == 0) saveLastPlayed()
                 checkSleepTimer()
@@ -130,6 +136,7 @@ object PlayerManager {
             val song = queue.getOrNull(index)
             if (song != null) {
                 _state.value = _state.value.copy(currentSong = song, queueIndex = index, positionMs = 0L)
+                _positionMs.value = 0L
                 ensureEffects()
                 saveLastPlayed()
             }
@@ -199,6 +206,7 @@ object PlayerManager {
             isPlaying = true,
             positionMs = startAtMs
         )
+        _positionMs.value = startAtMs
         ensureEffects()
         saveLastPlayed()
         onPlayed?.invoke(songs[safeIndex])
@@ -236,6 +244,14 @@ object PlayerManager {
         applyPlaybackParameters()
         ensureEffects()
         return true
+    }
+
+    fun clearQueue() {
+        val exo = player ?: return
+        try { exo.clearMediaItems() } catch (e: Exception) { }
+        exo.pause()
+        _state.value = _state.value.copy(queue = emptyList(), queueIndex = -1, currentSong = null, isPlaying = false)
+        _positionMs.value = 0L
     }
 
     fun playNext(song: Song) {
@@ -307,6 +323,7 @@ object PlayerManager {
 
     fun seekTo(positionMs: Long) {
         player?.seekTo(positionMs)
+        _positionMs.value = positionMs
         _state.value = _state.value.copy(positionMs = positionMs)
     }
 
