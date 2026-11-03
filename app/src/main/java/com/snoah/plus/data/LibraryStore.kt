@@ -97,7 +97,78 @@ class LibraryStore(context: Context) {
         current.add(0, songId)
         val trimmed = current.take(30)
         prefs.edit().putString(KEY_RECENT, trimmed.joinToString(",")).apply()
+        recordPlayCount(songId)
     }
+
+    // ---- Settings that must survive an app restart ----
+
+    fun getSortOrder(): String? = prefs.getString(KEY_SORT_ORDER, null)
+    fun saveSortOrder(order: String) {
+        prefs.edit().putString(KEY_SORT_ORDER, order).apply()
+    }
+
+    fun getDarkTheme(): Boolean? =
+        if (prefs.contains(KEY_DARK_THEME)) prefs.getBoolean(KEY_DARK_THEME, true) else null
+
+    fun saveDarkTheme(dark: Boolean) {
+        prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
+    }
+
+    fun getAccentName(): String? = prefs.getString(KEY_ACCENT_NAME, null)
+    fun saveAccentName(name: String) {
+        prefs.edit().putString(KEY_ACCENT_NAME, name).apply()
+    }
+
+    fun getEqualizerPreset(): String? = prefs.getString(KEY_EQ_PRESET, null)
+    fun saveEqualizerPreset(preset: String) {
+        prefs.edit().putString(KEY_EQ_PRESET, preset).apply()
+    }
+
+    fun getPlaybackSpeed(): Float = prefs.getFloat(KEY_SPEED, 1f)
+    fun savePlaybackSpeed(speed: Float) {
+        prefs.edit().putFloat(KEY_SPEED, speed).apply()
+    }
+
+    fun getVibeEnabled(): Boolean = prefs.getBoolean(KEY_VIBE, false)
+    fun saveVibeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VIBE, enabled).apply()
+    }
+
+    // ---- Last played song / queue, so the mini-player is there on open ----
+
+    fun saveLastPlayed(songId: Long, queueIds: List<Long>, queueIndex: Int, positionMs: Long) {
+        prefs.edit()
+            .putLong(KEY_LAST_SONG, songId)
+            .putString(KEY_LAST_QUEUE, queueIds.joinToString(","))
+            .putInt(KEY_LAST_INDEX, queueIndex)
+            .putLong(KEY_LAST_POSITION, positionMs)
+            .apply()
+    }
+
+    fun getLastSongId(): Long = prefs.getLong(KEY_LAST_SONG, -1L)
+    fun getLastQueueIds(): List<Long> =
+        prefs.getString(KEY_LAST_QUEUE, "")?.split(",")?.mapNotNull { it.toLongOrNull() } ?: emptyList()
+
+    fun getLastQueueIndex(): Int = prefs.getInt(KEY_LAST_INDEX, 0)
+    fun getLastPositionMs(): Long = prefs.getLong(KEY_LAST_POSITION, 0L)
+
+    fun saveResumePosition(songId: Long, positionMs: Long) {
+        prefs.edit().putLong("$KEY_RESUME_PREFIX$songId", positionMs).apply()
+    }
+
+    fun getResumePosition(songId: Long): Long = prefs.getLong("$KEY_RESUME_PREFIX$songId", 0L)
+    fun clearResumePosition(songId: Long) {
+        prefs.edit().remove("$KEY_RESUME_PREFIX$songId").apply()
+    }
+
+    // ---- Play counts for Most Played ----
+
+    fun recordPlayCount(songId: Long) {
+        val key = "$KEY_PLAY_COUNT_PREFIX$songId"
+        prefs.edit().putInt(key, prefs.getInt(key, 0) + 1).apply()
+    }
+
+    fun getPlayCount(songId: Long): Int = prefs.getInt("$KEY_PLAY_COUNT_PREFIX$songId", 0)
 
     companion object {
         private const val KEY_FAVOURITES = "favourites"
@@ -106,5 +177,17 @@ class LibraryStore(context: Context) {
         private const val KEY_PLAYLIST_SONGS_PREFIX = "playlist_songs_"
         private const val KEY_PLAYLIST_CREATED_PREFIX = "playlist_created_"
         private const val KEY_RECENT = "recently_played"
+        private const val KEY_SORT_ORDER = "sort_order"
+        private const val KEY_DARK_THEME = "dark_theme"
+        private const val KEY_ACCENT_NAME = "accent_name"
+        private const val KEY_EQ_PRESET = "equalizer_preset"
+        private const val KEY_SPEED = "playback_speed"
+        private const val KEY_VIBE = "vibe_enabled"
+        private const val KEY_LAST_SONG = "last_song_id"
+        private const val KEY_LAST_QUEUE = "last_queue_ids"
+        private const val KEY_LAST_INDEX = "last_queue_index"
+        private const val KEY_LAST_POSITION = "last_position_ms"
+        private const val KEY_RESUME_PREFIX = "resume_position_"
+        private const val KEY_PLAY_COUNT_PREFIX = "play_count_"
     }
 }
