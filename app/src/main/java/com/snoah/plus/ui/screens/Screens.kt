@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -86,9 +88,6 @@ import com.snoah.plus.ui.components.EmptyState
 import com.snoah.plus.ui.components.GradientHeader
 import com.snoah.plus.ui.components.SongRow
 import com.snoah.plus.ui.theme.AccentOptions
-import com.snoah.plus.ui.theme.SnoahCyan
-import com.snoah.plus.ui.theme.SnoahPink
-import com.snoah.plus.ui.theme.SnoahViolet
 import com.snoah.plus.util.FormatUtils
 
 @Composable
@@ -134,6 +133,52 @@ fun AddToPlaylistDialog(
 }
 
 @Composable
+fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
+    val dateText = if (song.dateAdded > 0) {
+        try {
+            java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
+                .format(java.util.Date(song.dateAdded * 1000L))
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    } else "Unknown"
+    val sizeText = if (song.sizeBytes >= 1_000_000) {
+        "%.1f MB".format(song.sizeBytes / 1_000_000f)
+    } else if (song.sizeBytes > 0) {
+        "${song.sizeBytes / 1000} KB"
+    } else "Unknown"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Song details", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Text(song.title, style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Artist: ${song.artist}")
+                Text("Album: ${song.album}")
+                Text("Duration: ${FormatUtils.formatDuration(song.durationMs)}")
+                Text("Size: $sizeText")
+                Text("Added: $dateText")
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+fun shareSong(context: android.content.Context, song: Song) {
+    try {
+        val share = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "audio/*"
+            putExtra(android.content.Intent.EXTRA_STREAM, song.contentUri)
+            putExtra(android.content.Intent.EXTRA_SUBJECT, song.title)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(share, "Share song"))
+    } catch (e: Exception) {
+    }
+}
+
+@Composable
 fun HomeScreen(
     viewModel: MusicViewModel,
     onOpenPlayer: () -> Unit,
@@ -149,8 +194,14 @@ fun HomeScreen(
     val playerState by PlayerManager.state.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
     var selectedForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var detailsSong by remember { mutableStateOf<Song?>(null) }
+    val homeContext = LocalContext.current
     var showCreate by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
+
+    if (detailsSong != null) {
+        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null })
+    }
 
     val displayed = viewModel.filteredSongs()
     val recentSongs = viewModel.recentSongs()
@@ -194,15 +245,16 @@ fun HomeScreen(
                 item { FilterChip(selected = sortOrder == SortOrder.ARTIST, onClick = { viewModel.setSortOrder(SortOrder.ARTIST) }, label = { Text("Artist") }) }
                 item { FilterChip(selected = sortOrder == SortOrder.RECENT, onClick = { viewModel.setSortOrder(SortOrder.RECENT) }, label = { Text("Recent") }) }
                 item { FilterChip(selected = sortOrder == SortOrder.DURATION, onClick = { viewModel.setSortOrder(SortOrder.DURATION) }, label = { Text("Longest") }) }
+                item { FilterChip(selected = sortOrder == SortOrder.MOST_PLAYED, onClick = { viewModel.setSortOrder(SortOrder.MOST_PLAYED) }, label = { Text("Most played") }) }
             }
         }
         item {
             // Three equal cards, fixed height, single-line labels so nothing wraps.
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
-                    Triple("Favourites", FormatUtils.formatCount(viewModel.favouriteSongs().size, "song", "songs"), Icons.Filled.Favorite to SnoahPink),
-                    Triple("Albums", FormatUtils.formatCount(viewModel.albums().size, "album", "albums"), Icons.Filled.Album to SnoahViolet),
-                    Triple("Artists", FormatUtils.formatCount(viewModel.artists().size, "artist", "artists"), Icons.Filled.Person to SnoahCyan)
+                    Triple("Favourites", FormatUtils.formatCount(viewModel.favouriteSongs().size, "song", "songs"), Icons.Filled.Favorite to MaterialTheme.colorScheme.onSurface),
+                    Triple("Albums", FormatUtils.formatCount(viewModel.albums().size, "album", "albums"), Icons.Filled.Album to MaterialTheme.colorScheme.onSurface),
+                    Triple("Artists", FormatUtils.formatCount(viewModel.artists().size, "artist", "artists"), Icons.Filled.Person to MaterialTheme.colorScheme.onSurface)
                 ).forEachIndexed { index, (label, count, iconTint) ->
                     Card(
                         modifier = Modifier.weight(1f).height(92.dp).clickable {
@@ -275,6 +327,18 @@ fun HomeScreen(
         } else if (displayed.isEmpty()) {
             item {
                 EmptyState("No songs yet", "Grant audio permission and add music files to this device to see them here. Tap Refresh after adding files.")
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    val message by viewModel.loadMessage.collectAsState()
+                    if (message.isNotEmpty()) {
+                        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    Button(onClick = { viewModel.refreshSongs() }, modifier = Modifier.height(48.dp)) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Refresh songs")
+                    }
+                }
             }
         } else {
             items(displayed, key = { it.id }) { song ->
@@ -286,7 +350,9 @@ fun HomeScreen(
                     onFavouriteClick = { viewModel.toggleFavourite(song) },
                     onAddToPlaylistClick = { selectedForPlaylist = song },
                     onPlayNextClick = { viewModel.playNext(song) },
-                    onAddToQueueClick = { viewModel.addToQueue(song) }
+                    onAddToQueueClick = { viewModel.addToQueue(song) },
+                    onDetailsClick = { detailsSong = song },
+                    onShareClick = { shareSong(homeContext, song) }
                 )
             }
         }
@@ -340,9 +406,24 @@ fun SearchScreen(viewModel: MusicViewModel) {
             label = { Text("Search songs, artists, albums…") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { viewModel.submitSearch(query) }),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         Spacer(modifier = Modifier.height(8.dp))
+        val history by viewModel.searchHistory.collectAsState()
+        if (query.isEmpty() && history.isNotEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recent searches", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { viewModel.clearSearchHistory() }) { Text("Clear") }
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                items(history) { past ->
+                    FilterChip(selected = false, onClick = { viewModel.setSearchQuery(past) }, label = { Text(past, maxLines = 1) })
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             if (results.isEmpty()) {
                 item { EmptyState("Nothing found", "Try a different song, artist or album name.") }
@@ -370,6 +451,8 @@ fun LibraryScreen(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val songs by viewModel.songs.collectAsState()
+    val favourites by viewModel.favourites.collectAsState()
+    val playerState by PlayerManager.state.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
 
@@ -394,7 +477,7 @@ fun LibraryScreen(
             }
             Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable { onOpenFavourites() }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Favorite, contentDescription = null, tint = SnoahPink)
+                    Icon(Icons.Filled.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Favourites", style = MaterialTheme.typography.titleMedium)
@@ -403,6 +486,23 @@ fun LibraryScreen(
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
+        }
+        val historySongs = viewModel.recentSongs().take(8)
+        if (historySongs.isNotEmpty()) {
+            item {
+                Text("History", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            items(historySongs, key = { it.id }) { song ->
+                SongRow(
+                    song = song,
+                    isFavourite = favourites.contains(song.id),
+                    isPlaying = playerState.currentSong?.id == song.id,
+                    onClick = { viewModel.playSong(song, songs) },
+                    onFavouriteClick = { viewModel.toggleFavourite(song) },
+                    onPlayNextClick = { viewModel.playNext(song) },
+                    onAddToQueueClick = { viewModel.addToQueue(song) }
+                )
+            }
         }
         if (playlists.isEmpty()) {
             item { EmptyState("No playlists yet", "Create your first playlist and add songs to it.") }
@@ -422,7 +522,7 @@ fun LibraryScreen(
                 }
                 Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onOpenPlaylist(playlist.id) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(listOf(SnoahViolet, SnoahPink))), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.QueueMusic, contentDescription = null, tint = Color.White)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
@@ -549,6 +649,34 @@ fun AlbumsArtistsScreen(viewModel: MusicViewModel, showArtists: Boolean, onBack:
 }
 
 @Composable
+fun VolumeRow() {
+    val context = LocalContext.current
+    val audioManager = remember {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    }
+    val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    var volumeFraction by remember {
+        mutableStateOf(audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / maxVolume.toFloat())
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Filled.VolumeDown, contentDescription = "Volume down", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(
+            value = volumeFraction,
+            onValueChange = {
+                volumeFraction = it
+                audioManager.setStreamVolume(
+                    android.media.AudioManager.STREAM_MUSIC,
+                    kotlin.math.roundToInt(it * maxVolume),
+                    0
+                )
+            },
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+        )
+        Icon(Icons.Filled.VolumeUp, contentDescription = "Volume up", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
 fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
     val playerState by PlayerManager.state.collectAsState()
     val favourites by viewModel.favourites.collectAsState()
@@ -617,7 +745,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
         AddToPlaylistDialog(song = song, playlists = playlists, onDismiss = { showAddToPlaylist = false }, onAdd = { id -> viewModel.addToPlaylist(id, song); showAddToPlaylist = false }, onCreatePlaylist = { name -> viewModel.createPlaylist(name) })
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(SnoahViolet.copy(alpha = 0.25f), MaterialTheme.colorScheme.background)))) {
+    LazyColumn(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         item {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
@@ -629,7 +757,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
             androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp)) {
                 val artSize = minOf(maxWidth, 320.dp)
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    AlbumArt(song = song, modifier = Modifier.size(artSize), cornerDp = 28)
+                    AlbumArt(song = song, modifier = Modifier.size(artSize), cornerDp = 28, isPlaying = playerState.isPlaying)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(song.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Spacer(modifier = Modifier.height(2.dp))
@@ -665,7 +793,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                             onClick = { PlayerManager.playPause() },
                             modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
                         ) {
-                            Icon(imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (playerState.isPlaying) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = if (playerState.isPlaying) "Pause" else "Play", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(32.dp))
                         }
                         IconButton(onClick = { PlayerManager.next() }, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.SkipNext, contentDescription = "Next", modifier = Modifier.size(34.dp)) }
                         IconButton(onClick = { PlayerManager.cycleRepeatMode() }, modifier = Modifier.size(48.dp)) {
@@ -700,7 +828,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                             Text("${playerState.playbackSpeed}x", maxLines = 1)
                         }
                         OutlinedButton(onClick = { viewModel.toggleFavourite(song) }, modifier = Modifier.weight(1f).height(48.dp)) {
-                            Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (favourites.contains(song.id)) SnoahPink else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (favourites.contains(song.id)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Favourite", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -715,6 +843,8 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    VolumeRow()
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Up next", style = MaterialTheme.typography.titleLarge, modifier = Modifier.fillMaxWidth())
                 }
@@ -752,7 +882,7 @@ fun SettingsScreen(viewModel: MusicViewModel) {
                     Switch(checked = darkTheme, onCheckedChange = { viewModel.setDarkTheme(it) })
                 }
                 Spacer(modifier = Modifier.height(20.dp))
-                Text("Accent colour", style = MaterialTheme.typography.titleMedium)
+                Text("Accent (black & white)", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AccentOptions.forEach { (name, color) ->
