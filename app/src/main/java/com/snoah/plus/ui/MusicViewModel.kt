@@ -55,7 +55,10 @@ class MusicViewModel(context: Context) : ViewModel() {
             observerJob?.cancel()
             observerJob = viewModelScope.launch {
                 delay(1500)
-                loadSongs()
+                // Forced: a new file should appear on its own. The
+                // old list stays visible until the scan finishes, so
+                // this no longer blanks or rebuilds the screen.
+                loadSongs(force = true)
             }
         }
     }
@@ -118,16 +121,27 @@ class MusicViewModel(context: Context) : ViewModel() {
     }
 
     fun loadSongs(force: Boolean = false) {
-        // Single flight: while a scan is running, another trigger
-        // (resume, observer, Home entry) must not cancel it and
-        // restart the scan, or the list never settles.
+        // Cache-first, like a library backed by stored data: once a
+        // list is on screen it stays on screen. A background rescan
+        // must never blank the list, flash a loading spinner over it,
+        // or rebuild every row while the user is scrolling or a song
+        // is playing — that rebuilding is what made fast scrolling
+        // jitter and the list look empty until another tab was opened.
+        // Non-forced triggers (coming back to the app, a MediaStore
+        // change) do nothing at all while songs are already loaded;
+        // only an explicit Refresh rescans, and even then the old
+        // list stays visible until the new scan has real results.
+        if (!force && _songs.value.isNotEmpty()) return
         if (!force && loadJob?.isActive == true) return
         // Cancel a stale load so a fresh Refresh can never be
         // overwritten by an older, slower query finishing later.
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
-            _isLoading.value = true
-            _loadMessage.value = "Scanning your music…"
+            val hadSongs = _songs.value.isNotEmpty()
+            if (!hadSongs) {
+                _isLoading.value = true
+                _loadMessage.value = "Scanning your music…"
+            }
             var loaded: List<Song> = emptyList()
             // MediaStore can still be scanning right after permission
             // is granted or files arrive: retry an empty result a
@@ -137,15 +151,19 @@ class MusicViewModel(context: Context) : ViewModel() {
                 if (loaded.isNotEmpty() || attempt == 2) break
                 delay(900)
             }
-            _songs.value = loaded
+            // Keep the old list if a background scan came back empty:
+            // an empty scan means "not ready", not "no music".
+            if (loaded.isNotEmpty() || force || !hadSongs) {
+                _songs.value = loaded
+            }
             _isLoading.value = false
-            _loadMessage.value = if (loaded.isEmpty()) {
+            _loadMessage.value = if (_songs.value.isEmpty()) {
                 "No songs found. Check audio permission in Settings, then tap Refresh."
             } else {
-                "${loaded.size} songs found"
+                "${_songs.value.size} songs found"
             }
             // Bring back the last song in the mini-player, paused, ready to play.
-            PlayerManager.restoreLastPlayed(loaded)
+            PlayerManager.restoreLastPlayed(_songs.value)
         }
     }
 
