@@ -1,20 +1,21 @@
 package com.snoah.plus.playback
 
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.content.IntentFilter
 import android.media.audiofx.BassBoost
 import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.snoah.plus.data.LibraryStore
 import com.snoah.plus.data.RepeatMode
 import com.snoah.plus.data.Song
@@ -38,8 +39,16 @@ data class PlayerState(
 )
 
 /**
- * Single playback controller used by the whole app. It owns one ExoPlayer
- * instance so the mini-player and the full player always stay in sync.
+ * Single playback controller used by the whole app.
+ *
+ * The player itself lives in PlaybackService (the service owns one
+ * ExoPlayer and a MediaSession), and this object talks to it only
+ * through a MediaController connected to that session. That is the
+ * arrangement that makes Android show the media notification and the
+ * Quick Settings tile: the controller connection activates the
+ * session, and every play/pause/skip goes through the session, so
+ * the system media UI sees the same state the app shows. Driving a
+ * separate player directly from the UI left the system UI blind.
  *
  * Audio effects are real Android audio effects attached to the player's
  * audio session: an Equalizer + BassBoost for the EQ presets, and an
@@ -52,7 +61,12 @@ data class PlayerState(
  */
 object PlayerManager {
 
-    private var player: ExoPlayer? = null
+    // The controller is a Player: every playback call below goes
+    // through the session to the service-owned ExoPlayer.
+    private var player: Player? = null
+    private var controller: MediaController? = null
+    private var connectStarted = false
+    private var pendingAction: (() -> Unit)? = null
     private var appContext: Context? = null
     private var library: LibraryStore? = null
 
@@ -73,9 +87,9 @@ object PlayerManager {
     private var effectsSessionId: Int = -1
     private var noisyReceiver: BroadcastReceiver? = null
 
-    /** MediaItem with title/artist/album/artwork, so Android's media
-     *  notification, Quick Settings tile and lock screen can show
-     *  what is playing. Without metadata they show nothing. */
+    /** MediaItem with id + title/artist/album/artwork, so Android's
+     *  media notification, Quick Settings tile and lock screen can
+     *  show what is playing. Without metadata they show nothing. */
     private fun mediaItemFor(song: Song): MediaItem {
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -85,21 +99,39 @@ object PlayerManager {
             .setIsPlayable(true)
             .build()
         return MediaItem.Builder()
+            .setMediaId(song.id.toString())
             .setUri(song.contentUri)
             .setMediaMetadata(metadata)
             .build()
     }
 
-    private fun ensureServiceStarted() {
+    /** Connect to the service's session. Safe to call repeatedly:
+     *  the connection is started once, and a play request that
+     *  arrives before the controller is ready is kept and run as
+     *  soon as it connects, instead of being silently dropped. */
+    private fun connectIfNeeded() {
         val ctx = appContext ?: return
+        if (connectStarted) return
+        connectStarted = true
         try {
-            val intent = Intent(ctx, PlaybackService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
-            }
+            val token = SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))
+            val future = MediaController.Builder(ctx, token).buildAsync()
+            future.addListener({
+                try {
+                    val connected = future.get()
+                    controller = connected
+                    player = connected
+                    connected.addListener(listener)
+                    applyPlaybackParameters()
+                    val action = pendingAction
+                    pendingAction = null
+                    action?.invoke()
+                } catch (e: Exception) {
+                    connectStarted = false
+                }
+            }, ContextCompat.getMainExecutor(ctx))
         } catch (e: Exception) {
+            connectStarted = false
         }
     }
 
@@ -152,7 +184,7 @@ object PlayerManager {
     }
 
     fun init(context: Context) {
-        if (player != null) return
+        if (appContext != null) return
         appContext = context.applicationContext
         library = LibraryStore(context.applicationContext)
         val savedSpeed = library?.getPlaybackSpeed() ?: 1f
@@ -163,17 +195,12 @@ object PlayerManager {
             vibeEnabled = savedVibe,
             equalizerPreset = savedPreset
         )
-        val exo = ExoPlayer.Builder(context.applicationContext).build()
-        exo.addListener(listener)
-        player = exo
-        applyPlaybackParameters()
+        // Connect to the service session: the controller connection
+        // is what activates the session for the notification and
+        // Quick Settings. The service itself creates the player, so
+        // nothing here starts a foreground service directly.
+        connectIfNeeded()
         handler.post(ticker)
-        // Do NOT start the foreground service here: starting it at
-        // app open, before any playback, makes Android kill the app
-        // when no foreground notification appears within seconds
-        // (ForegroundServiceDidNotStartInTime). The service is
-        // started only when playback actually starts, in playQueue
-        // and play(), where the media notification follows at once.
         try {
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
@@ -191,15 +218,20 @@ object PlayerManager {
         }
     }
 
-    fun getPlayer(): ExoPlayer? = player
-
     // ---- Queue ----
 
     fun playQueue(songs: List<Song>, startIndex: Int, startAtMs: Long = 0L, onPlayed: ((Song) -> Unit)? = null) {
-        val exo = player ?: return
         if (songs.isEmpty()) return
+        // If the controller is not connected yet (first tap right
+        // after opening the app), keep this request and run it when
+        // the connection lands instead of dropping it.
+        if (player == null) {
+            pendingAction = { playQueue(songs, startIndex, startAtMs, onPlayed) }
+            connectIfNeeded()
+            return
+        }
+        val exo = player ?: return
         val safeIndex = startIndex.coerceIn(0, songs.size - 1)
-        ensureServiceStarted()
         val items = songs.map { mediaItemFor(it) }
         exo.setMediaItems(items, safeIndex, startAtMs)
         exo.prepare()
@@ -219,6 +251,11 @@ object PlayerManager {
 
     /** Load the saved queue paused, so the mini-player shows the last song on open. */
     fun restoreLastPlayed(allSongs: List<Song>): Boolean {
+        if (player == null) {
+            pendingAction = { restoreLastPlayed(allSongs) }
+            connectIfNeeded()
+            return false
+        }
         val exo = player ?: return false
         if (_state.value.queue.isNotEmpty()) return false
         val store = library ?: return false
@@ -287,16 +324,24 @@ object PlayerManager {
     }
 
     fun playPause() {
-        val exo = player ?: return
-        if (!exo.isPlaying) ensureServiceStarted()
+        val exo = player
+        if (exo == null) {
+            connectIfNeeded()
+            return
+        }
         if (exo.isPlaying) exo.pause() else exo.play()
         _state.value = _state.value.copy(isPlaying = exo.isPlaying)
         saveLastPlayed()
     }
 
     fun play() {
-        ensureServiceStarted()
-        player?.play()
+        val exo = player
+        if (exo == null) {
+            pendingAction = { play() }
+            connectIfNeeded()
+            return
+        }
+        exo.play()
         _state.value = _state.value.copy(isPlaying = true)
     }
 
@@ -550,7 +595,10 @@ object PlayerManager {
         handler.removeCallbacks(ticker)
         releaseEffects()
         player?.removeListener(listener)
-        player?.release()
+        try { controller?.release() } catch (e: Exception) { }
+        controller = null
         player = null
+        connectStarted = false
+        pendingAction = null
     }
 }
