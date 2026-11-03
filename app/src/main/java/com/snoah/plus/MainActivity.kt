@@ -102,6 +102,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlayerManager.init(this)
+        // Start the media session service up front so Android's
+        // notification / Quick Settings can see playback as soon as
+        // a song starts, instead of only after opening the player.
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                this,
+                Intent(this, com.snoah.plus.playback.PlaybackService::class.java)
+            )
+        } catch (e: Exception) {
+        }
         hasPermission = checkAudioPermission()
         if (!hasPermission) {
             permissionLauncher.launch(audioPermission())
@@ -166,6 +176,7 @@ fun SnoahPlusApp(
 ) {
     val navController = rememberNavController()
     val playerState by PlayerManager.state.collectAsState()
+    val playerPositionMs by PlayerManager.positionMs.collectAsState()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomBar = currentRoute in listOf(Routes.HOME, Routes.SEARCH, Routes.LIBRARY, Routes.SETTINGS)
@@ -212,7 +223,7 @@ fun SnoahPlusApp(
                         MiniPlayer(
                             song = currentSong,
                             isPlaying = playerState.isPlaying,
-                            positionMs = playerState.positionMs,
+                            positionMs = playerPositionMs,
                             durationMs = playerState.durationMs,
                             onPlayPause = { PlayerManager.playPause() },
                             onClick = { navController.navigate(Routes.PLAYER) }
