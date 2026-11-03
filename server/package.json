@@ -1,0 +1,1 @@
+{"dependencies":{"express":"^4.19.2"},"description":"Optional companion API for Snoah Plus playlists and favourites sync (in-memory only).","main":"index.js","name":"snoah-plus-server","scripts":{"start":"node index.js"},"version":"1.0.0"}
