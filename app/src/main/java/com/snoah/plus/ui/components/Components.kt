@@ -1,5 +1,10 @@
 package com.snoah.plus.ui.components
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,16 +21,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,8 +98,11 @@ fun SongRow(
     isPlaying: Boolean,
     onClick: () -> Unit,
     onFavouriteClick: () -> Unit,
-    onAddToPlaylistClick: (() -> Unit)? = null
+    onAddToPlaylistClick: (() -> Unit)? = null,
+    onPlayNextClick: (() -> Unit)? = null,
+    onAddToQueueClick: (() -> Unit)? = null
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         shape = RoundedCornerShape(18.dp),
@@ -108,19 +123,70 @@ fun SongRow(
                     overflow = TextOverflow.Ellipsis,
                     color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
-                Text(
-                    text = "${song.artist} • ${FormatUtils.formatDuration(song.durationMs)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${song.artist} • ${FormatUtils.formatDuration(song.durationMs)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isPlaying) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        VisualizerBars(isPlaying = true, modifier = Modifier.size(width = 18.dp, height = 16.dp))
+                    }
+                }
             }
             IconButton(onClick = onFavouriteClick) {
                 Icon(
                     imageVector = if (isFavourite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = if (isFavourite) "Remove from favourites" else "Add to favourites",
                     tint = if (isFavourite) SnoahPink else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (onPlayNextClick != null || onAddToQueueClick != null || onAddToPlaylistClick != null) {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Song options")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        if (onPlayNextClick != null) {
+                            DropdownMenuItem(text = { Text("Play next") }, onClick = { menuExpanded = false; onPlayNextClick() })
+                        }
+                        if (onAddToQueueClick != null) {
+                            DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menuExpanded = false; onAddToQueueClick() })
+                        }
+                        if (onAddToPlaylistClick != null) {
+                            DropdownMenuItem(text = { Text("Add to playlist") }, onClick = { menuExpanded = false; onAddToPlaylistClick() })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Small animated bars that dance only while music is playing. */
+@Composable
+fun VisualizerBars(isPlaying: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "visualizer")
+    val bar1 by transition.animateFloat(0.25f, 0.45f, infiniteRepeatable(tween(450), RepeatMode.Reverse), label = "bar1")
+    val bar2 by transition.animateFloat(0.25f, 1f, infiniteRepeatable(tween(560), RepeatMode.Reverse), label = "bar2")
+    val bar3 by transition.animateFloat(0.25f, 0.6f, infiniteRepeatable(tween(670), RepeatMode.Reverse), label = "bar3")
+    val bar4 by transition.animateFloat(0.25f, 0.85f, infiniteRepeatable(tween(780), RepeatMode.Reverse), label = "bar4")
+    val fractions = listOf(bar1, bar2, bar3, bar4)
+    Row(modifier = modifier, verticalAlignment = Alignment.Bottom, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+        fractions.forEach { fraction ->
+            val h = if (isPlaying) fraction else 0.25f
+            Box(modifier = Modifier.weight(1f).height(16.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((16f * h).dp)
+                        .align(Alignment.BottomCenter)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Brush.verticalGradient(listOf(SnoahPink, SnoahViolet)))
                 )
             }
         }
@@ -178,13 +244,13 @@ fun MiniPlayer(
 @Composable
 fun EmptyState(title: String, message: String) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(32.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(imageVector = Icons.Filled.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
-        Spacer(modifier = Modifier.height(12.dp))
+        Icon(imageVector = Icons.Filled.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(title, style = MaterialTheme.typography.titleLarge)
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -194,11 +260,11 @@ fun GradientHeader(title: String, subtitle: String) {
     Box(
         modifier = Modifier.fillMaxWidth()
             .background(Brush.linearGradient(listOf(SnoahViolet, SnoahPink, SnoahCyan)))
-            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .padding(horizontal = 20.dp, vertical = 18.dp)
     ) {
         Column {
-            Text(title, style = MaterialTheme.typography.displayLarge, color = Color.White)
-            Text(subtitle, style = MaterialTheme.typography.bodyLarge, color = Color.White.copy(alpha = 0.9f))
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
