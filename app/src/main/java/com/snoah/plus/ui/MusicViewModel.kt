@@ -1,6 +1,10 @@
 package com.snoah.plus.ui
 
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.snoah.plus.data.LibraryStore
@@ -10,6 +14,8 @@ import com.snoah.plus.data.Song
 import com.snoah.plus.data.SortOrder
 import com.snoah.plus.playback.PlayerManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,8 +24,9 @@ import kotlinx.coroutines.withContext
 
 class MusicViewModel(context: Context) : ViewModel() {
 
-    private val repository = MusicRepository(context.applicationContext)
-    private val library = LibraryStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val repository = MusicRepository(appContext)
+    private val library = LibraryStore(appContext)
 
     private val _songs = MutableStateFlow<List<Song>>(emptyList())
     val songs: StateFlow<List<Song>> = _songs.asStateFlow()
@@ -27,8 +34,24 @@ class MusicViewModel(context: Context) : ViewModel() {
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _loadMessage = MutableStateFlow("")
+    val loadMessage: StateFlow<String> = _loadMessage.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
+    private var loadJob: Job? = null
+
+    // Reload when MediaStore changes (a new file is downloaded or
+    // deleted), so songs appear without switching tabs or restarting.
+    private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            loadSongs()
+        }
+    }
 
     private val _sortOrder = MutableStateFlow(SortOrder.TITLE)
     val sortOrder: StateFlow<SortOrder> = _sortOrder.asStateFlow()
@@ -45,7 +68,7 @@ class MusicViewModel(context: Context) : ViewModel() {
     private val _darkTheme = MutableStateFlow(true)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
 
-    private val _accentName = MutableStateFlow("Violet")
+    private val _accentName = MutableStateFlow("White")
     val accentName: StateFlow<String> = _accentName.asStateFlow()
 
     private val _equalizerPreset = MutableStateFlow("Balanced")
@@ -60,19 +83,56 @@ class MusicViewModel(context: Context) : ViewModel() {
             library.getSortOrder()?.let { _sortOrder.value = SortOrder.valueOf(it) }
         }
         library.getDarkTheme()?.let { _darkTheme.value = it }
-        library.getAccentName()?.let { _accentName.value = it }
+        library.getAccentName()?.let { saved ->
+            // Old colour names from earlier versions fall back to White.
+            _accentName.value = if (saved in listOf("White", "Silver", "Graphite")) saved else "White"
+        }
         library.getEqualizerPreset()?.let {
             _equalizerPreset.value = it
             PlayerManager.setEqualizerPreset(it)
         }
+        _searchHistory.value = library.getSearchHistory()
+        try {
+            appContext.contentResolver.registerContentObserver(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaObserver
+            )
+        } catch (e: Exception) {
+        }
+    }
+
+    override fun onCleared() {
+        try {
+            appContext.contentResolver.unregisterContentObserver(mediaObserver)
+        } catch (e: Exception) {
+        }
+        super.onCleared()
     }
 
     fun loadSongs() {
-        viewModelScope.launch {
+        // Cancel a stale load so a fresh Refresh can never be
+        // overwritten by an older, slower query finishing later.
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _isLoading.value = true
-            val loaded = withContext(Dispatchers.IO) { repository.loadSongs() }
+            _loadMessage.value = "Scanning your music…"
+            var loaded: List<Song> = emptyList()
+            // MediaStore can still be scanning right after permission
+            // is granted or files arrive: retry an empty result a
+            // few times instead of showing "No songs yet" too early.
+            for (attempt in 0 until 3) {
+                loaded = withContext(Dispatchers.IO) { repository.loadSongs() }
+                if (loaded.isNotEmpty() || attempt == 2) break
+                delay(900)
+            }
             _songs.value = loaded
             _isLoading.value = false
+            _loadMessage.value = if (loaded.isEmpty()) {
+                "No songs found. Check audio permission in Settings, then tap Refresh."
+            } else {
+                "${loaded.size} songs found"
+            }
             // Bring back the last song in the mini-player, paused, ready to play.
             PlayerManager.restoreLastPlayed(loaded)
         }
@@ -85,6 +145,18 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
+    }
+
+    fun submitSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        library.saveSearchQuery(trimmed)
+        _searchHistory.value = library.getSearchHistory()
+    }
+
+    fun clearSearchHistory() {
+        library.clearSearchHistory()
+        _searchHistory.value = emptyList()
     }
 
     fun setSortOrder(order: SortOrder) {
@@ -108,6 +180,7 @@ class MusicViewModel(context: Context) : ViewModel() {
             SortOrder.ARTIST -> base.sortedBy { it.artist.lowercase() }
             SortOrder.DURATION -> base.sortedByDescending { it.durationMs }
             SortOrder.RECENT -> base.sortedByDescending { it.dateAdded }
+            SortOrder.MOST_PLAYED -> base.sortedByDescending { library.getPlayCount(it.id) }
         }
     }
 
