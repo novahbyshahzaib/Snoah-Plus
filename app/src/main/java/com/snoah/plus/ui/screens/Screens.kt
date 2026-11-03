@@ -89,6 +89,7 @@ import com.snoah.plus.ui.components.GradientHeader
 import com.snoah.plus.ui.components.SongRow
 import com.snoah.plus.ui.theme.AccentOptions
 import com.snoah.plus.util.FormatUtils
+import kotlin.math.roundToInt
 
 @Composable
 fun AddToPlaylistDialog(
@@ -193,9 +194,15 @@ fun HomeScreen(
     val playlists by viewModel.playlists.collectAsState()
     val playerState by PlayerManager.state.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
     var selectedForPlaylist by remember { mutableStateOf<Song?>(null) }
     var detailsSong by remember { mutableStateOf<Song?>(null) }
     val homeContext = LocalContext.current
+    // Coming back to Home must never leave an empty list: if the
+    // first scan finished empty, scan again on every Home entry.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (viewModel.songs.value.isEmpty()) viewModel.loadSongs()
+    }
     var showCreate by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
@@ -204,9 +211,11 @@ fun HomeScreen(
     }
 
     val displayed = viewModel.filteredSongs()
-    val recentSongs = viewModel.recentSongs()
-    val mostPlayed = viewModel.mostPlayedSongs()
-    val recentlyAdded = viewModel.recentlyAddedSongs()
+    // Safety net: the All-songs list must never be empty while songs
+    // are known. If a stale search filter hides everything, fall
+    // back to the full list so Home can never show "No songs yet"
+    // while Albums / Artists counts are non-zero.
+    val displayedSafe = if (displayed.isEmpty() && songs.isNotEmpty() && searchQuery.isNotBlank()) songs else displayed
 
     if (selectedForPlaylist != null) {
         AddToPlaylistDialog(
@@ -278,7 +287,7 @@ fun HomeScreen(
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.shuffleAll() }, modifier = Modifier.weight(1f).height(48.dp), enabled = displayed.isNotEmpty()) {
+                Button(onClick = { viewModel.shuffleAll() }, modifier = Modifier.weight(1f).height(48.dp), enabled = displayedSafe.isNotEmpty()) {
                     Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Shuffle all")
@@ -291,32 +300,17 @@ fun HomeScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
-        if (recentSongs.isNotEmpty()) {
-            item {
-                SectionRow(title = "Recently played", songs = recentSongs.take(10), onPlay = { song -> viewModel.playSong(song, displayed) })
-            }
-        }
-        if (mostPlayed.isNotEmpty()) {
-            item {
-                SectionRow(title = "Most played", songs = mostPlayed, onPlay = { song -> viewModel.playSong(song, displayed) })
-            }
-        }
-        if (recentlyAdded.isNotEmpty()) {
-            item {
-                SectionRow(title = "Recently added", songs = recentlyAdded, onPlay = { song -> viewModel.playSong(song, displayed) })
-            }
-        }
         item {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("All songs", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                Text("${displayed.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${displayedSafe.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 IconButton(onClick = { viewModel.refreshSongs() }, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Refresh songs")
                 }
                 TextButton(onClick = { showCreate = true }) { Text("+ Playlist") }
             }
         }
-        if (isLoading && displayed.isEmpty()) {
+        if (isLoading && displayedSafe.isEmpty()) {
             item {
                 Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
@@ -324,7 +318,7 @@ fun HomeScreen(
                     Text("Loading your songs…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        } else if (displayed.isEmpty()) {
+        } else if (displayedSafe.isEmpty()) {
             item {
                 EmptyState("No songs yet", "Grant audio permission and add music files to this device to see them here. Tap Refresh after adding files.")
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -333,20 +327,26 @@ fun HomeScreen(
                         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(12.dp))
                     }
-                    Button(onClick = { viewModel.refreshSongs() }, modifier = Modifier.height(48.dp)) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Refresh songs")
+                    if (searchQuery.isNotBlank() && songs.isNotEmpty()) {
+                        Button(onClick = { viewModel.setSearchQuery("") }, modifier = Modifier.height(48.dp)) {
+                            Text("Clear search")
+                        }
+                    } else {
+                        Button(onClick = { viewModel.refreshSongs() }, modifier = Modifier.height(48.dp)) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Refresh songs")
+                        }
                     }
                 }
             }
         } else {
-            items(displayed, key = { it.id }) { song ->
+            items(displayedSafe, key = { it.id }) { song ->
                 SongRow(
                     song = song,
                     isFavourite = favourites.contains(song.id),
                     isPlaying = playerState.currentSong?.id == song.id,
-                    onClick = { viewModel.playSong(song, displayed) },
+                    onClick = { viewModel.playSong(song, displayedSafe) },
                     onFavouriteClick = { viewModel.toggleFavourite(song) },
                     onAddToPlaylistClick = { selectedForPlaylist = song },
                     onPlayNextClick = { viewModel.playNext(song) },
@@ -455,6 +455,12 @@ fun LibraryScreen(
     val playerState by PlayerManager.state.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
+    var detailsSong by remember { mutableStateOf<Song?>(null) }
+    val libraryContext = LocalContext.current
+
+    if (detailsSong != null) {
+        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null })
+    }
 
     if (showCreate) {
         AlertDialog(
@@ -487,21 +493,31 @@ fun LibraryScreen(
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
-        val historySongs = viewModel.recentSongs().take(8)
-        if (historySongs.isNotEmpty()) {
-            item {
-                Text("History", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
-            items(historySongs, key = { it.id }) { song ->
-                SongRow(
-                    song = song,
-                    isFavourite = favourites.contains(song.id),
-                    isPlaying = playerState.currentSong?.id == song.id,
-                    onClick = { viewModel.playSong(song, songs) },
-                    onFavouriteClick = { viewModel.toggleFavourite(song) },
-                    onPlayNextClick = { viewModel.playNext(song) },
-                    onAddToQueueClick = { viewModel.addToQueue(song) }
-                )
+        // Library-only sections: Recently played, Recently added and
+        // Most played live here in their own sections, not on Home.
+        val librarySections = listOf(
+            "Recently played" to viewModel.recentSongs().take(8),
+            "Recently added" to viewModel.recentlyAddedSongs(limit = 8),
+            "Most played" to viewModel.mostPlayedSongs(limit = 8)
+        )
+        librarySections.forEach { (title, sectionSongs) ->
+            if (sectionSongs.isNotEmpty()) {
+                item {
+                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                items(sectionSongs, key = { it.id }) { song ->
+                    SongRow(
+                        song = song,
+                        isFavourite = favourites.contains(song.id),
+                        isPlaying = playerState.currentSong?.id == song.id,
+                        onClick = { viewModel.playSong(song, songs) },
+                        onFavouriteClick = { viewModel.toggleFavourite(song) },
+                        onPlayNextClick = { viewModel.playNext(song) },
+                        onAddToQueueClick = { viewModel.addToQueue(song) },
+                        onDetailsClick = { detailsSong = song },
+                        onShareClick = { shareSong(libraryContext, song) }
+                    )
+                }
             }
         }
         if (playlists.isEmpty()) {
@@ -666,7 +682,7 @@ fun VolumeRow() {
                 volumeFraction = it
                 audioManager.setStreamVolume(
                     android.media.AudioManager.STREAM_MUSIC,
-                    kotlin.math.roundToInt(it * maxVolume),
+                    (it * maxVolume).roundToInt(),
                     0
                 )
             },
