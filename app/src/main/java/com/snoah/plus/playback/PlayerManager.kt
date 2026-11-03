@@ -7,6 +7,7 @@ import android.media.audiofx.Equalizer
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -63,6 +64,37 @@ object PlayerManager {
     private var bassBoost: BassBoost? = null
     private var reverb: EnvironmentalReverb? = null
     private var effectsSessionId: Int = -1
+    private var noisyReceiver: BroadcastReceiver? = null
+
+    /** MediaItem with title/artist/album/artwork, so Android's media
+     *  notification, Quick Settings tile and lock screen can show
+     *  what is playing. Without metadata they show nothing. */
+    private fun mediaItemFor(song: Song): MediaItem {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setArtworkUri(song.albumArtUri)
+            .setIsPlayable(true)
+            .build()
+        return MediaItem.Builder()
+            .setUri(song.contentUri)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    private fun ensureServiceStarted() {
+        val ctx = appContext ?: return
+        try {
+            val intent = Intent(ctx, PlaybackService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
+        } catch (e: Exception) {
+        }
+    }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -125,6 +157,22 @@ object PlayerManager {
         player = exo
         applyPlaybackParameters()
         handler.post(ticker)
+        ensureServiceStarted()
+        try {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                        pause()
+                    }
+                }
+            }
+            noisyReceiver = receiver
+            context.applicationContext.registerReceiver(
+                receiver,
+                IntentFilter(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            )
+        } catch (e: Exception) {
+        }
     }
 
     fun getPlayer(): ExoPlayer? = player
@@ -135,7 +183,8 @@ object PlayerManager {
         val exo = player ?: return
         if (songs.isEmpty()) return
         val safeIndex = startIndex.coerceIn(0, songs.size - 1)
-        val items = songs.map { MediaItem.fromUri(it.contentUri) }
+        ensureServiceStarted()
+        val items = songs.map { mediaItemFor(it) }
         exo.setMediaItems(items, safeIndex, startAtMs)
         exo.prepare()
         exo.play()
@@ -162,11 +211,12 @@ object PlayerManager {
         val byId = allSongs.associateBy { it.id }
         val queue = queueIds.mapNotNull { byId[it] }
         if (queue.isEmpty()) return false
+        ensureServiceStarted()
         val index = queue.indexOfFirst { it.id == lastId }.takeIf { it >= 0 }
             ?: store.getLastQueueIndex().coerceIn(0, queue.size - 1)
         val position = store.getLastPositionMs().coerceAtLeast(0L)
         val song = queue[index]
-        val items = queue.map { MediaItem.fromUri(it.contentUri) }
+        val items = queue.map { mediaItemFor(it) }
         exo.setMediaItems(items, index, 0L)
         exo.prepare()
         exo.seekTo(index, position)
@@ -193,7 +243,7 @@ object PlayerManager {
         }
         if (queue.any { it.id == song.id }) return
         val insertAt = (_state.value.queueIndex + 1).coerceIn(0, queue.size)
-        exo.addMediaItem(insertAt, MediaItem.fromUri(song.contentUri))
+        exo.addMediaItem(insertAt, mediaItemFor(song))
         val newQueue = queue.toMutableList().apply { add(insertAt, song) }
         _state.value = _state.value.copy(queue = newQueue)
         saveLastPlayed()
@@ -207,7 +257,7 @@ object PlayerManager {
             return
         }
         if (queue.any { it.id == song.id }) return
-        exo.addMediaItem(MediaItem.fromUri(song.contentUri))
+        exo.addMediaItem(mediaItemFor(song))
         _state.value = _state.value.copy(queue = queue + song)
         saveLastPlayed()
     }
@@ -220,6 +270,7 @@ object PlayerManager {
     }
 
     fun play() {
+        ensureServiceStarted()
         player?.play()
         _state.value = _state.value.copy(isPlaying = true)
     }
@@ -461,6 +512,11 @@ object PlayerManager {
     }
 
     fun release() {
+        try {
+            noisyReceiver?.let { appContext?.unregisterReceiver(it) }
+        } catch (e: Exception) {
+        }
+        noisyReceiver = null
         saveLastPlayed()
         handler.removeCallbacks(ticker)
         releaseEffects()

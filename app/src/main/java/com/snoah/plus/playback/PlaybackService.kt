@@ -1,12 +1,17 @@
 package com.snoah.plus.playback
 
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.snoah.plus.MainActivity
 
 /**
  * Foreground media session service. It exposes the shared ExoPlayer so
- * Android notifications, Bluetooth controls and the lock screen can
- * control Snoah Plus playback.
+ * Android notifications, Quick Settings, Bluetooth controls and the
+ * lock screen can show and control Snoah Plus playback. This service
+ * must actually be started (PlayerManager does that when playback
+ * starts); creating the MediaSession here alone is not enough.
  */
 class PlaybackService : MediaSessionService() {
 
@@ -17,7 +22,16 @@ class PlaybackService : MediaSessionService() {
         PlayerManager.init(this)
         val player = PlayerManager.getPlayer()
         if (player != null) {
-            mediaSession = MediaSession.Builder(this, player).build()
+            val sessionIntent = Intent(this, MainActivity::class.java)
+            val sessionActivity = PendingIntent.getActivity(
+                this,
+                0,
+                sessionIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            mediaSession = MediaSession.Builder(this, player)
+                .setSessionActivity(sessionActivity)
+                .build()
         }
     }
 
