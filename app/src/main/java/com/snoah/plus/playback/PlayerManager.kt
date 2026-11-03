@@ -168,7 +168,12 @@ object PlayerManager {
         player = exo
         applyPlaybackParameters()
         handler.post(ticker)
-        ensureServiceStarted()
+        // Do NOT start the foreground service here: starting it at
+        // app open, before any playback, makes Android kill the app
+        // when no foreground notification appears within seconds
+        // (ForegroundServiceDidNotStartInTime). The service is
+        // started only when playback actually starts, in playQueue
+        // and play(), where the media notification follows at once.
         try {
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) {
@@ -223,7 +228,6 @@ object PlayerManager {
         val byId = allSongs.associateBy { it.id }
         val queue = queueIds.mapNotNull { byId[it] }
         if (queue.isEmpty()) return false
-        ensureServiceStarted()
         val index = queue.indexOfFirst { it.id == lastId }.takeIf { it >= 0 }
             ?: store.getLastQueueIndex().coerceIn(0, queue.size - 1)
         val position = store.getLastPositionMs().coerceAtLeast(0L)
@@ -284,6 +288,7 @@ object PlayerManager {
 
     fun playPause() {
         val exo = player ?: return
+        if (!exo.isPlaying) ensureServiceStarted()
         if (exo.isPlaying) exo.pause() else exo.play()
         _state.value = _state.value.copy(isPlaying = exo.isPlaying)
         saveLastPlayed()
