@@ -175,13 +175,15 @@ fun SnoahPlusApp(
         if (hasPermission) viewModel.loadSongs()
     }
 
-    // Reload every time the app comes back to the front. This is what
-    // makes songs appear after permission is granted in Settings, or
-    // after new files are added, without having to switch tabs.
+    // Reload only if the list is still empty when the app comes
+    // back to the front. Rescanning on every resume rebuilt the
+    // whole list under the user's fingers while scrolling or
+    // playing; new files are picked up by the MediaStore observer
+    // and by the Refresh button instead.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, hasPermission) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && hasPermission) {
+            if (event == Lifecycle.Event.ON_RESUME && hasPermission && viewModel.songs.value.isEmpty()) {
                 viewModel.loadSongs()
             }
         }
