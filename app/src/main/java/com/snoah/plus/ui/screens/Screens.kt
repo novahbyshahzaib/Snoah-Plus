@@ -376,7 +376,7 @@ private fun SectionRow(title: String, songs: List<Song>, onPlay: (Song) -> Unit)
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-            items(songs) { song ->
+            items(songs, key = { it.id }) { song ->
                 Column(modifier = Modifier.width(104.dp).clickable { onPlay(song) }) {
                     AlbumArt(song = song, modifier = Modifier.size(104.dp), cornerDp = 18)
                     Spacer(modifier = Modifier.height(6.dp))
@@ -396,8 +396,14 @@ fun SearchScreen(viewModel: MusicViewModel) {
     val favourites by viewModel.favourites.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
     val playerState by PlayerManager.state.collectAsState()
+    val songs by viewModel.songs.collectAsState()
+    val sortOrder by viewModel.sortOrder.collectAsState()
     var selectedForPlaylist by remember { mutableStateOf<Song?>(null) }
-    val results = viewModel.filteredSongs()
+    // Memoised: filtering + sorting the whole library on every
+    // recomposition (e.g. every playback tick) made this screen
+    // stutter while music played. It now recomputes only when the
+    // songs, the query or the sort order actually change.
+    val results = remember(songs, query, sortOrder) { viewModel.filteredSongs() }
 
     if (selectedForPlaylist != null) {
         AddToPlaylistDialog(
@@ -429,7 +435,7 @@ fun SearchScreen(viewModel: MusicViewModel) {
                 TextButton(onClick = { viewModel.clearSearchHistory() }) { Text("Clear") }
             }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-                items(history) { past ->
+                items(history, key = { it }) { past ->
                     FilterChip(selected = false, onClick = { viewModel.setSearchQuery(past) }, label = { Text(past, maxLines = 1) })
                 }
             }
@@ -660,7 +666,7 @@ fun AlbumsArtistsScreen(viewModel: MusicViewModel, showArtists: Boolean, onBack:
             if (groups.isEmpty()) {
                 item { EmptyState("Nothing here yet", "Songs on this device will be grouped here.") }
             } else {
-                items(groups) { (name, groupSongs) ->
+                items(groups, key = { it.first }) { (name, groupSongs) ->
                     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onPlayGroup(groupSongs) }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             AlbumArt(song = groupSongs.firstOrNull(), modifier = Modifier.size(52.dp), cornerDp = 14)
