@@ -100,6 +100,11 @@ class LibraryStore(context: Context) {
         recordPlayCount(songId)
     }
 
+    /** Clear the recently-played list (play counts are kept). */
+    fun clearRecentlyPlayed() {
+        prefs.edit().remove(KEY_RECENT).apply()
+    }
+
     // ---- Settings that must survive an app restart ----
 
     fun getSortOrder(): String? = prefs.getString(KEY_SORT_ORDER, null)
