@@ -11,7 +11,9 @@ data class Song(
     val contentUri: Uri,
     val albumArtUri: Uri?,
     val dateAdded: Long,
-    val sizeBytes: Long
+    val sizeBytes: Long,
+    /** Folder the file lives in (last part of its storage path), for the Folders view. */
+    val folder: String = ""
 )
 
 data class Playlist(
