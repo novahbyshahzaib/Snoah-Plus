@@ -129,6 +129,11 @@ class LibraryStore(context: Context) {
         prefs.edit().putString(KEY_EQ_PRESET, preset).apply()
     }
 
+    fun getDynamicBarEnabled(): Boolean = prefs.getBoolean(KEY_DYNAMIC_BAR, true)
+    fun saveDynamicBarEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DYNAMIC_BAR, enabled).apply()
+    }
+
     fun getPlaybackSpeed(): Float = prefs.getFloat(KEY_SPEED, 1f)
     fun savePlaybackSpeed(speed: Float) {
         prefs.edit().putFloat(KEY_SPEED, speed).apply()
@@ -204,6 +209,7 @@ class LibraryStore(context: Context) {
         private const val KEY_DARK_THEME = "dark_theme"
         private const val KEY_ACCENT_NAME = "accent_name"
         private const val KEY_EQ_PRESET = "equalizer_preset"
+        private const val KEY_DYNAMIC_BAR = "dynamic_bar_enabled"
         private const val KEY_SPEED = "playback_speed"
         private const val KEY_VIBE = "vibe_enabled"
         private const val KEY_LAST_SONG = "last_song_id"
