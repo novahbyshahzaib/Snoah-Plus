@@ -83,6 +83,7 @@ object Routes {
     const val FAVOURITES = "favourites"
     const val ALBUMS = "albums"
     const val ARTISTS = "artists"
+    const val FOLDERS = "folders"
 }
 
 class MainActivity : ComponentActivity() {
@@ -275,7 +276,8 @@ fun SnoahPlusApp(
                 LibraryScreen(
                     viewModel = viewModel,
                     onOpenPlaylist = { id -> navController.navigate("playlist/$id") },
-                    onOpenFavourites = { navController.navigate(Routes.FAVOURITES) }
+                    onOpenFavourites = { navController.navigate(Routes.FAVOURITES) },
+                    onOpenFolders = { navController.navigate(Routes.FOLDERS) }
                 )
             }
             composable(Routes.SETTINGS) { SettingsScreen(viewModel = viewModel) }
@@ -299,6 +301,11 @@ fun SnoahPlusApp(
             }
             composable(Routes.ARTISTS) {
                 AlbumsArtistsScreen(viewModel = viewModel, showArtists = true, onBack = { navController.popBackStack() }, onPlayGroup = { group ->
+                    if (group.isNotEmpty()) viewModel.playSong(group[0], group)
+                })
+            }
+            composable(Routes.FOLDERS) {
+                AlbumsArtistsScreen(viewModel = viewModel, showArtists = false, showFolders = true, onBack = { navController.popBackStack() }, onPlayGroup = { group ->
                     if (group.isNotEmpty()) viewModel.playSong(group[0], group)
                 })
             }
