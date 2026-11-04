@@ -114,6 +114,10 @@ class MusicRepository(private val context: Context) {
                         // Fall back to the file's modified time so Recent
                         // sorting always has a real order.
                         val effectiveDate = if (dateAdded > 0) dateAdded else dateModified
+                        // Folder name for the Folders view: the last part
+                        // of the storage path, e.g. "Telegram Audio".
+                        val folder = relativePath.trim('/').split('/')
+                            .lastOrNull { it.isNotEmpty() } ?: "Other files"
                         out[uri] = Song(
                             id = id,
                             title = title,
@@ -123,7 +127,8 @@ class MusicRepository(private val context: Context) {
                             contentUri = uri,
                             albumArtUri = artUri,
                             dateAdded = effectiveDate,
-                            sizeBytes = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
+                            sizeBytes = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L,
+                            folder = folder
                         )
                     } catch (e: Exception) {
                         // Skip one bad row instead of losing the whole list.
