@@ -58,12 +58,32 @@ fun AlbumArt(
 ) {
     val shape = RoundedCornerShape(cornerDp.dp)
     val hasArt = song?.albumArtUri != null
-    Box(
+    // The fallback is drawn UNDER the photo. Some songs have an
+    // album-art address but no real picture behind it, and Coil then
+    // draws nothing, which left a blank dark square on Now Playing.
+    // Now the note / moving equaliser is always underneath, so a
+    // missing or failed picture shows that instead of blank space,
+    // and a real picture simply covers it.
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
+        val fallbackSize = (maxWidth * 0.45f).coerceIn(24.dp, 120.dp)
+        if (isPlaying) {
+            VisualizerBars(
+                isPlaying = true,
+                modifier = Modifier.size(width = (maxWidth * 0.5f).coerceIn(28.dp, 140.dp), height = (maxHeight * 0.22f).coerceIn(16.dp, 48.dp))
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(fallbackSize)
+            )
+        }
         if (hasArt) {
             // Load a small thumbnail, not the full-size album art:
             // full-size images on every row made fast scrolling jitter.
@@ -78,23 +98,6 @@ fun AlbumArt(
                 modifier = Modifier.matchParentSize().clip(shape),
                 contentScale = ContentScale.Crop
             )
-        } else {
-            // Premium default artwork: a clean music note on a muted
-            // surface. While playing, moving equaliser bars replace
-            // the note so songs without a picture still feel alive.
-            if (isPlaying) {
-                VisualizerBars(
-                    isPlaying = true,
-                    modifier = Modifier.size(width = 36.dp, height = 28.dp)
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
         }
     }
 }
@@ -110,7 +113,8 @@ fun SongRow(
     onPlayNextClick: (() -> Unit)? = null,
     onAddToQueueClick: (() -> Unit)? = null,
     onDetailsClick: (() -> Unit)? = null,
-    onShareClick: (() -> Unit)? = null
+    onShareClick: (() -> Unit)? = null,
+    onRemoveClick: (() -> Unit)? = null
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Card(
@@ -155,7 +159,7 @@ fun SongRow(
                     tint = if (isFavourite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (onPlayNextClick != null || onAddToQueueClick != null || onAddToPlaylistClick != null || onDetailsClick != null || onShareClick != null) {
+            if (onPlayNextClick != null || onAddToQueueClick != null || onAddToPlaylistClick != null || onDetailsClick != null || onShareClick != null || onRemoveClick != null) {
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Song options")
@@ -175,6 +179,9 @@ fun SongRow(
                         }
                         if (onDetailsClick != null) {
                             DropdownMenuItem(text = { Text("Details") }, onClick = { menuExpanded = false; onDetailsClick() })
+                        }
+                        if (onRemoveClick != null) {
+                            DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { menuExpanded = false; onRemoveClick() })
                         }
                     }
                 }
