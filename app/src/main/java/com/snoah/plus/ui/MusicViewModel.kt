@@ -12,6 +12,7 @@ import com.snoah.plus.data.MusicRepository
 import com.snoah.plus.data.Playlist
 import com.snoah.plus.data.Song
 import com.snoah.plus.data.SortOrder
+import com.snoah.plus.playback.DynamicBarManager
 import com.snoah.plus.playback.PlayerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,6 +84,9 @@ class MusicViewModel(context: Context) : ViewModel() {
 
     private val _equalizerPreset = MutableStateFlow("Balanced")
     val equalizerPreset: StateFlow<String> = _equalizerPreset.asStateFlow()
+
+    private val _dynamicBarEnabled = MutableStateFlow(library.getDynamicBarEnabled())
+    val dynamicBarEnabled: StateFlow<Boolean> = _dynamicBarEnabled.asStateFlow()
 
     init {
         _favourites.value = library.getFavourites()
@@ -346,6 +350,12 @@ class MusicViewModel(context: Context) : ViewModel() {
     fun playlistSongs(playlist: Playlist): List<Song> {
         val byId = _songs.value.associateBy { it.id }
         return playlist.songIds.mapNotNull { byId[it] }
+    }
+
+    fun setDynamicBarEnabled(enabled: Boolean) {
+        _dynamicBarEnabled.value = enabled
+        library.saveDynamicBarEnabled(enabled)
+        DynamicBarManager.refresh()
     }
 
     fun setDarkTheme(dark: Boolean) {
