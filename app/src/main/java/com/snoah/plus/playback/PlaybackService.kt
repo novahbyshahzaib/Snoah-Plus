@@ -63,6 +63,9 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivity)
             .build()
         ensureEffects()
+        // The floating dynamic bar lives as long as the media
+        // session does: it shows over other apps while music plays.
+        DynamicBarManager.start(applicationContext)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -76,6 +79,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         mediaSession?.player?.removeListener(playerListener)
         releaseEffects()
+        DynamicBarManager.stop()
         mediaSession?.run {
             player.release()
             release()
