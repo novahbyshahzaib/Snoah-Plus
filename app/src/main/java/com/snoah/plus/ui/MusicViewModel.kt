@@ -231,6 +231,28 @@ class MusicViewModel(context: Context) : ViewModel() {
         return _songs.value.groupBy { it.artist }.toList().sortedBy { it.first.lowercase() }
     }
 
+    /** Songs grouped by the folder they live in, e.g. Telegram Audio. */
+    fun folders(): List<Pair<String, List<Song>>> {
+        return _songs.value.groupBy { it.folder.ifBlank { "Other files" } }.toList().sortedBy { it.first.lowercase() }
+    }
+
+    fun playCount(songId: Long): Int = library.getPlayCount(songId)
+
+    fun clearRecentlyPlayed() {
+        library.clearRecentlyPlayed()
+        _recentIds.value = emptyList()
+    }
+
+    /** Jump to a song already in the queue (Up next list). */
+    fun playQueueAt(index: Int) {
+        PlayerManager.jumpToQueueIndex(index)
+        _recentIds.value = library.getRecentlyPlayed()
+    }
+
+    fun removeFromQueue(song: Song) {
+        PlayerManager.removeFromQueue(song)
+    }
+
     fun playSong(song: Song, queue: List<Song>) {
         val index = queue.indexOfFirst { it.id == song.id }.takeIf { it >= 0 } ?: 0
         // Resume where this song was left off, if it was stopped mid-song.
