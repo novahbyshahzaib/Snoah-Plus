@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -136,7 +138,7 @@ fun AddToPlaylistDialog(
 }
 
 @Composable
-fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
+fun SongDetailsDialog(song: Song, onDismiss: () -> Unit, playCount: Int = 0) {
     val dateText = if (song.dateAdded > 0) {
         try {
             java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
@@ -159,9 +161,11 @@ fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Artist: ${song.artist}")
                 Text("Album: ${song.album}")
+                Text("Folder: ${song.folder.ifBlank { "Other files" }}")
                 Text("Duration: ${FormatUtils.formatDuration(song.durationMs)}")
                 Text("Size: $sizeText")
                 Text("Added: $dateText")
+                if (playCount > 0) Text("Played: $playCount ${if (playCount == 1) "time" else "times"}")
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
@@ -209,7 +213,7 @@ fun HomeScreen(
     var newPlaylistName by remember { mutableStateOf("") }
 
     if (detailsSong != null) {
-        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null })
+        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null }, playCount = viewModel.playCount(detailsSong!!.id))
     }
 
     val recentIds by viewModel.recentIds.collectAsState()
@@ -464,7 +468,8 @@ fun SearchScreen(viewModel: MusicViewModel) {
 fun LibraryScreen(
     viewModel: MusicViewModel,
     onOpenPlaylist: (String) -> Unit,
-    onOpenFavourites: () -> Unit
+    onOpenFavourites: () -> Unit,
+    onOpenFolders: () -> Unit = {}
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val songs by viewModel.songs.collectAsState()
@@ -485,7 +490,7 @@ fun LibraryScreen(
     val libraryContext = LocalContext.current
 
     if (detailsSong != null) {
-        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null })
+        SongDetailsDialog(song = detailsSong!!, onDismiss = { detailsSong = null }, playCount = viewModel.playCount(detailsSong!!.id))
     }
 
     if (showCreate) {
@@ -518,13 +523,29 @@ fun LibraryScreen(
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable { onOpenFolders() }, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Folders", style = MaterialTheme.typography.titleMedium)
+                        Text(FormatUtils.formatCount(viewModel.folders().size, "folder", "folders"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
         // Library-only sections: Recently played, Recently added and
         // Most played live here in their own sections, not on Home.
         librarySections.forEach { (title, sectionSongs) ->
             if (sectionSongs.isNotEmpty()) {
                 item {
-                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                        if (title == "Recently played") {
+                            TextButton(onClick = { viewModel.clearRecentlyPlayed() }) { Text("Clear") }
+                        }
+                    }
                 }
                 items(sectionSongs, key = { song -> "$title-${song.id}" }) { song ->
                     SongRow(
@@ -655,12 +676,16 @@ fun FavouritesScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-fun AlbumsArtistsScreen(viewModel: MusicViewModel, showArtists: Boolean, onBack: () -> Unit, onPlayGroup: (List<Song>) -> Unit) {
-    val groups = if (showArtists) viewModel.artists() else viewModel.albums()
+fun AlbumsArtistsScreen(viewModel: MusicViewModel, showArtists: Boolean, onBack: () -> Unit, onPlayGroup: (List<Song>) -> Unit, showFolders: Boolean = false) {
+    val groups = when {
+        showFolders -> viewModel.folders()
+        showArtists -> viewModel.artists()
+        else -> viewModel.albums()
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
-            Text(if (showArtists) "Artists" else "Albums", style = MaterialTheme.typography.titleLarge)
+            Text(if (showFolders) "Folders" else if (showArtists) "Artists" else "Albums", style = MaterialTheme.typography.titleLarge)
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             if (groups.isEmpty()) {
@@ -744,6 +769,7 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                     listOf(15, 30, 60).forEach { minutes ->
                         TextButton(onClick = { PlayerManager.setSleepTimer(minutes); showSleep = false }) { Text("$minutes minutes") }
                     }
+                    TextButton(onClick = { PlayerManager.setSleepTimerEndOfSong(); showSleep = false }) { Text("End of this song") }
                     TextButton(onClick = { PlayerManager.setSleepTimer(null); showSleep = false }) { Text("Off") }
                 }
             },
@@ -796,7 +822,22 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
             androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp)) {
                 val artSize = minOf(maxWidth, 320.dp)
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    AlbumArt(song = song, modifier = Modifier.size(artSize), cornerDp = 28, isPlaying = playerState.isPlaying)
+                    // Swipe the artwork left or right to skip: a
+                    // horizontal swipe past 120dp changes the song.
+                    val swipeModifier = Modifier.pointerInput(Unit) {
+                        var totalDrag = 0f
+                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                            onDragStart = { totalDrag = 0f },
+                            onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
+                            onDragEnd = {
+                                if (totalDrag < -120f) PlayerManager.next()
+                                else if (totalDrag > 120f) PlayerManager.previous()
+                            }
+                        )
+                    }
+                    Box(modifier = swipeModifier) {
+                        AlbumArt(song = song, modifier = Modifier.size(artSize), cornerDp = 28, isPlaying = playerState.isPlaying)
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(song.title, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Spacer(modifier = Modifier.height(2.dp))
@@ -910,8 +951,8 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
         if (queue.isEmpty()) {
             item { EmptyState("Queue is empty", "Your queue will appear here while music plays.") }
         } else {
-            itemsIndexed(queue, key = { index, queueSong -> "$index-${queueSong.id}" }) { _, queueSong ->
-                SongRow(song = queueSong, isFavourite = favourites.contains(queueSong.id), isPlaying = playerState.currentSong?.id == queueSong.id, onClick = { viewModel.playSong(queueSong, queue) }, onFavouriteClick = { viewModel.toggleFavourite(queueSong) }, onPlayNextClick = { viewModel.playNext(queueSong) }, onAddToQueueClick = { viewModel.addToQueue(queueSong) })
+            itemsIndexed(queue, key = { index, queueSong -> "$index-${queueSong.id}" }) { index, queueSong ->
+                SongRow(song = queueSong, isFavourite = favourites.contains(queueSong.id), isPlaying = playerState.currentSong?.id == queueSong.id, onClick = { viewModel.playQueueAt(index) }, onFavouriteClick = { viewModel.toggleFavourite(queueSong) }, onPlayNextClick = { viewModel.playNext(queueSong) }, onAddToQueueClick = { viewModel.addToQueue(queueSong) }, onRemoveClick = { viewModel.removeFromQueue(queueSong) })
             }
         }
         item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -977,7 +1018,7 @@ fun SettingsScreen(viewModel: MusicViewModel) {
                 Text("Your last song stays in the mini-player when you reopen the app, paused at the place you left it. Songs you stop mid-way resume from the same place when you tap them again. Sort order, theme, accent and equalizer are all remembered.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(20.dp))
                 Text("About", style = MaterialTheme.typography.titleMedium)
-                Text("Snoah Plus 1.2.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Snoah Plus 1.5.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(96.dp))
             }
         }
