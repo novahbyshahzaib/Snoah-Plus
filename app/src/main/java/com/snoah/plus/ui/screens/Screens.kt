@@ -2,6 +2,7 @@ package com.snoah.plus.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -826,8 +827,8 @@ fun PlayerScreen(viewModel: MusicViewModel, onBack: () -> Unit) {
                     // horizontal swipe past 120dp changes the song.
                     val swipeModifier = Modifier.pointerInput(Unit) {
                         var totalDrag = 0f
-                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
-                            onDragStart = { totalDrag = 0f },
+                        detectHorizontalDragGestures(
+                            onDragStart = { _ -> totalDrag = 0f },
                             onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
                             onDragEnd = {
                                 if (totalDrag < -120f) PlayerManager.next()
