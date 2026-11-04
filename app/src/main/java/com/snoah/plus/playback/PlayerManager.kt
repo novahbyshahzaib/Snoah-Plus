@@ -288,6 +288,47 @@ object PlayerManager {
         _positionMs.value = 0L
     }
 
+    /** Jump straight to one song in the queue, from the Up next list,
+     *  without rebuilding the queue. */
+    fun jumpToQueueIndex(index: Int) {
+        val exo = player ?: return
+        val queue = _state.value.queue
+        if (index !in queue.indices) return
+        try {
+            exo.seekTo(index, 0L)
+            exo.play()
+        } catch (e: Exception) { }
+        _state.value = _state.value.copy(
+            queueIndex = index,
+            currentSong = queue[index],
+            isPlaying = true,
+            positionMs = 0L
+        )
+        _positionMs.value = 0L
+        saveLastPlayed()
+    }
+
+    /** Remove one song from the queue. The queue list is updated
+     *  first so the playback listener maps the new index to the
+     *  right song when the player moves on. */
+    fun removeFromQueue(song: Song) {
+        val exo = player ?: return
+        val queue = _state.value.queue
+        val index = queue.indexOfFirst { it.id == song.id }
+        if (index < 0) return
+        val newQueue = queue.toMutableList().apply { removeAt(index) }
+        _state.value = _state.value.copy(queue = newQueue)
+        try {
+            exo.removeMediaItem(index)
+        } catch (e: Exception) { }
+        if (newQueue.isEmpty()) {
+            exo.pause()
+            _state.value = _state.value.copy(queueIndex = -1, currentSong = null, isPlaying = false)
+            _positionMs.value = 0L
+        }
+        saveLastPlayed()
+    }
+
     fun playNext(song: Song) {
         val exo = player ?: return
         val queue = _state.value.queue
@@ -463,6 +504,19 @@ object PlayerManager {
             sleepEndAtMs = System.currentTimeMillis() + minutes * 60L * 1000L
             _state.value = _state.value.copy(sleepTimerSecondsLeft = minutes * 60)
         }
+    }
+
+    /** Stop when the current song ends, however long is left in it.
+     *  If the length is unknown, fall back to 30 minutes. */
+    fun setSleepTimerEndOfSong() {
+        val exo = player
+        val remainingMs = if (exo != null && exo.duration > 0) {
+            (exo.duration - exo.currentPosition).coerceAtLeast(1000L)
+        } else {
+            30L * 60L * 1000L
+        }
+        sleepEndAtMs = System.currentTimeMillis() + remainingMs
+        _state.value = _state.value.copy(sleepTimerSecondsLeft = (remainingMs / 1000L).toInt())
     }
 
     private fun checkSleepTimer() {
