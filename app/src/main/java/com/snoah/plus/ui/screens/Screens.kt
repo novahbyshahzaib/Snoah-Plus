@@ -971,6 +971,8 @@ fun SettingsScreen(viewModel: MusicViewModel) {
     val settingsSongs by viewModel.songs.collectAsState()
     val settingsFavourites by viewModel.favourites.collectAsState()
     val settingsPlaylists by viewModel.playlists.collectAsState()
+    val dynamicBarEnabled by viewModel.dynamicBarEnabled.collectAsState()
+    val settingsContext = LocalContext.current
     val statsPlays = remember(settingsSongs) { viewModel.totalPlayCount() }
     val statsHours = remember(settingsSongs) { viewModel.totalListeningTimeMs() / 3_600_000 }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1018,8 +1020,26 @@ fun SettingsScreen(viewModel: MusicViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Your last song stays in the mini-player when you reopen the app, paused at the place you left it. Songs you stop mid-way resume from the same place when you tap them again. Sort order, theme, accent and equalizer are all remembered.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(20.dp))
+                Text("Dynamic bar", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Floating pill over other apps", style = MaterialTheme.typography.titleMedium)
+                        Text("A small black pill at the top of the screen while music plays, even on the home screen. Tap it to open the full card with controls. It hides while Snoah Plus is open.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = dynamicBarEnabled, onCheckedChange = { viewModel.setDynamicBarEnabled(it) })
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.fromParts("package", settingsContext.packageName, null)
+                    )
+                    settingsContext.startActivity(intent)
+                }) { Text("Allow floating bar permission") }
+                Spacer(modifier = Modifier.height(20.dp))
                 Text("About", style = MaterialTheme.typography.titleMedium)
-                Text("Snoah Plus 1.5.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Snoah Plus 1.6.0 • by Shahzaib Muzaffar\nPlays audio files already on your Android device. No streaming, no account, no uploads. Your favourites and playlists stay on your device.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(96.dp))
             }
         }
